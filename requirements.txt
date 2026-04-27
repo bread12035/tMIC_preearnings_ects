@@ -1,0 +1,92 @@
+# =====================================================================
+# requirements.txt — fully pinned (top-level + transitive)
+# =====================================================================
+# Target Python: 3.11.11 (Docker base: python:3.11.11-bookworm)
+# Locked from: pip 26.x dependency resolver, generated 2026-04-27
+#
+# How to regenerate:
+#   1. python -m venv .venv
+#   2. .venv\Scripts\activate           (Windows)
+#      source .venv/bin/activate        (Linux/macOS)
+#   3. Edit ONLY the "Top-level" block below
+#   4. pip install <only the top-level packages>
+#   5. pip freeze > requirements.txt    (then re-add this header by hand)
+#
+# Do NOT add packages directly to the "Locked transitive" section —
+# that is generated, not authored. Add to "Top-level" only.
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# Top-level (intentional dependencies)
+# ---------------------------------------------------------------------
+# Google Cloud
+google-cloud-storage==3.10.1
+google-cloud-pubsub==2.37.0
+
+# LLM
+anthropic==0.97.0
+
+# Data
+pandas==2.2.3
+pyarrow==18.1.0
+
+# Configuration
+python-dotenv==1.0.1
+pydantic==2.10.4
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-mock==3.14.0
+respx==0.22.0
+
+
+# ---------------------------------------------------------------------
+# Locked transitive (do not edit manually)
+# ---------------------------------------------------------------------
+annotated-types==0.7.0
+anyio==4.13.0
+certifi==2026.4.22
+cffi==2.0.0
+charset-normalizer==3.4.7
+cryptography==47.0.0
+distro==1.9.0
+docstring_parser==0.18.0
+google-api-core==2.30.3
+google-auth==2.49.2
+google-cloud-core==2.5.1
+google-crc32c==1.8.0
+google-resumable-media==2.8.2
+googleapis-common-protos==1.74.0
+grpc-google-iam-v1==0.14.4
+grpcio==1.80.0
+grpcio-status==1.80.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.13
+importlib_metadata==8.7.1
+iniconfig==2.3.0
+jiter==0.14.0
+numpy==2.4.4
+opentelemetry-api==1.41.1
+opentelemetry-sdk==1.41.1
+opentelemetry-semantic-conventions==0.62b1
+packaging==26.2
+pluggy==1.6.0
+proto-plus==1.27.2
+protobuf==6.33.6
+pyasn1==0.6.3
+pyasn1_modules==0.4.2
+pycparser==3.0
+pydantic_core==2.27.2
+python-dateutil==2.9.0.post0
+pytz==2026.1.post1
+requests==2.33.1
+six==1.17.0
+sniffio==1.3.1
+typing_extensions==4.15.0
+tzdata==2026.2
+urllib3==2.6.3
+zipp==3.23.1
