@@ -1,0 +1,128 @@
+"""End-to-end-ish test for ECTS (without a real Pub/Sub emulator).
+
+Seeds fake GCS with the 4 sources and a mocked Claude, then invokes worker.handle.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+from unittest.mock import AsyncMock, MagicMock
+
+import pandas as pd
+import pytest
+
+from ects.data_processor import ECTSDataProcessor
+from ects.worker import ECTSWorker
+
+
+def _parquet_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    df.to_parquet(buf)
+    return buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_ects_e2e_happy_path(fake_gcs) -> None:
+    base = "company=AAPL/quarter=Q2/fiscal=2026/AAPL"
+    fake_gcs.put_bytes(
+        "bk-t",
+        f"bbg/transcript/{base}.parquet",
+        _parquet_bytes(pd.DataFrame({"text": ["Welcome to the call."]})),
+    )
+    fake_gcs.put_bytes(
+        "bk-f",
+        f"bbg/financial/{base}.parquet",
+        _parquet_bytes(pd.DataFrame({"metric": ["revenue"], "value": [100.0]})),
+    )
+    fake_gcs.put_bytes(
+        "bk-s",
+        f"bbg/segment/{base}.parquet",
+        _parquet_bytes(pd.DataFrame({"segment": ["iphone"], "revenue": [50.0]})),
+    )
+    fake_gcs.put_text(
+        "bk-c",
+        f"configs/ects/{base}.json",
+        json.dumps({"sector": "tech"}),
+    )
+
+    processor = ECTSDataProcessor(
+        gcs=fake_gcs,
+        bucket_transcript="bk-t",
+        prefix_transcript="bbg/transcript",
+        bucket_financial="bk-f",
+        prefix_financial="bbg/financial",
+        bucket_segment="bk-s",
+        prefix_segment="bbg/segment",
+        bucket_config="bk-c",
+        prefix_config="configs/ects",
+    )
+
+    claude = MagicMock()
+    claude.complete = AsyncMock(return_value="## Summary\nThe quarter was strong.")
+
+    worker = ECTSWorker(
+        processor=processor,
+        claude=claude,
+        gcs=fake_gcs,
+        output_bucket="ects-out",
+        output_prefix="digwork/tmic/ects_summary",
+    )
+
+    ok = await worker.handle(
+        {"ticker": "AAPL", "fiscal_year": "2026", "fiscal_quarter": "Q2"},
+        {"message_id": "m-int-2"},
+    )
+    assert ok is True
+
+    expected_path = (
+        "digwork/tmic/ects_summary/company=AAPL/quarter=Q2/fiscal=2026/"
+        "AAPL_FY_Q2_2026.md"
+    )
+    assert ("ects-out", expected_path) in fake_gcs.objects
+    body = fake_gcs.objects[("ects-out", expected_path)].decode("utf-8")
+    assert "strong" in body
+
+
+@pytest.mark.asyncio
+async def test_ects_e2e_missing_data_acks_without_output(fake_gcs) -> None:
+    # Only seed transcript + config; financial and segment missing
+    base = "company=AAPL/quarter=Q2/fiscal=2026/AAPL"
+    fake_gcs.put_bytes(
+        "bk-t",
+        f"bbg/transcript/{base}.parquet",
+        _parquet_bytes(pd.DataFrame({"text": ["x"]})),
+    )
+    fake_gcs.put_text(
+        "bk-c", f"configs/ects/{base}.json", json.dumps({"sector": "tech"})
+    )
+
+    processor = ECTSDataProcessor(
+        gcs=fake_gcs,
+        bucket_transcript="bk-t",
+        prefix_transcript="bbg/transcript",
+        bucket_financial="bk-f",
+        prefix_financial="bbg/financial",
+        bucket_segment="bk-s",
+        prefix_segment="bbg/segment",
+        bucket_config="bk-c",
+        prefix_config="configs/ects",
+    )
+    claude = MagicMock()
+    claude.complete = AsyncMock()
+    worker = ECTSWorker(
+        processor=processor,
+        claude=claude,
+        gcs=fake_gcs,
+        output_bucket="ects-out",
+        output_prefix="digwork/tmic/ects_summary",
+    )
+
+    ok = await worker.handle(
+        {"ticker": "AAPL", "fiscal_year": "2026", "fiscal_quarter": "Q2"},
+        {},
+    )
+    assert ok is True  # ack despite missing data
+    claude.complete.assert_not_awaited()
+    # No output written
+    assert not any(k[0] == "ects-out" for k in fake_gcs.objects.keys())

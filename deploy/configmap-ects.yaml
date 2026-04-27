@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: earnings-intel-ects-config
+  namespace: tmic
+data:
+  workflow.env: |
+    APP_MODE=ects
+    GCP_PUBSUB_SUBSCRIPTION=earnings-events-ects-sub
