@@ -1,0 +1,139 @@
+"""Shared pytest fixtures.
+
+The big idea: tests should never touch real GCS, real Pub/Sub, or real
+Anthropic. We provide an in-memory FakeGCSService that satisfies the
+GCSService interface (duck-typed - we use it wherever GCSService is expected),
+plus settings/env helpers.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+import pytest
+
+from common.exceptions import GCSObjectNotFound, GCSWriteError
+
+
+# --- Fake GCS ---------------------------------------------------------------
+
+class FakeGCSService:
+    """In-memory replacement for GCSService. Same async interface."""
+
+    def __init__(self) -> None:
+        # Keyed by (bucket, blob_path)
+        self.objects: dict[tuple[str, str], bytes] = {}
+        self.write_errors: set[tuple[str, str]] = set()
+
+    # --- helpers (test-side) ---
+    def put_text(self, bucket: str, blob_path: str, content: str) -> None:
+        self.objects[(bucket, blob_path)] = content.encode("utf-8")
+
+    def put_bytes(self, bucket: str, blob_path: str, content: bytes) -> None:
+        self.objects[(bucket, blob_path)] = content
+
+    def put_json(self, bucket: str, blob_path: str, payload: Any) -> None:
+        self.put_text(bucket, blob_path, json.dumps(payload))
+
+    def fail_write(self, bucket: str, blob_path: str) -> None:
+        self.write_errors.add((bucket, blob_path))
+
+    # --- public async API (matches GCSService) ---
+    async def read_bytes(self, bucket: str, blob_path: str) -> bytes:
+        key = (bucket, blob_path)
+        if key not in self.objects:
+            raise GCSObjectNotFound(f"gs://{bucket}/{blob_path}")
+        return self.objects[key]
+
+    async def read_text(
+        self, bucket: str, blob_path: str, encoding: str = "utf-8"
+    ) -> str:
+        return (await self.read_bytes(bucket, blob_path)).decode(encoding)
+
+    async def read_json(self, bucket: str, blob_path: str) -> dict:
+        return json.loads(await self.read_text(bucket, blob_path))
+
+    async def read_parquet_bytes(self, bucket: str, blob_path: str) -> bytes:
+        return await self.read_bytes(bucket, blob_path)
+
+    async def write_text(
+        self,
+        bucket: str,
+        blob_path: str,
+        content: str,
+        content_type: str = "text/markdown; charset=utf-8",
+    ) -> None:
+        if (bucket, blob_path) in self.write_errors:
+            raise GCSWriteError(f"forced failure for gs://{bucket}/{blob_path}")
+        self.objects[(bucket, blob_path)] = content.encode("utf-8")
+
+    async def exists(self, bucket: str, blob_path: str) -> bool:
+        return (bucket, blob_path) in self.objects
+
+
+@pytest.fixture
+def fake_gcs() -> FakeGCSService:
+    return FakeGCSService()
+
+
+# --- Env / settings ---------------------------------------------------------
+
+REQUIRED_ENV: dict[str, str] = {
+    "APP_MODE": "pre_earnings",
+    "LOG_LEVEL": "INFO",
+    "ENVIRONMENT": "local",
+    "GCP_PROJECT_ID": "test-project",
+    "GCP_PUBSUB_TOPIC": "earnings-events",
+    "GCP_PUBSUB_SUBSCRIPTION": "earnings-events-pre-earnings-sub",
+    "GCP_PUBSUB_MAX_INFLIGHT": "5",
+    "GCP_PUBSUB_ACK_DEADLINE_SECONDS": "60",
+    "GCS_PROJECT_ID": "test-project",
+    "GCS_BUCKET_PRE_EARNINGS_OUTPUT": "test-pe-out",
+    "GCS_BLOB_PREFIX_PRE_EARNINGS_OUTPUT": "digwork/tmic/pre_earnings_summary",
+    "GCS_BUCKET_ECTS_OUTPUT": "test-ects-out",
+    "GCS_BLOB_PREFIX_ECTS_OUTPUT": "digwork/tmic/ects_summary",
+    "GCS_BUCKET_ECTS_TRANSCRIPT": "test-bbg-transcript",
+    "GCS_BLOB_PREFIX_ECTS_TRANSCRIPT": "bbg/transcript",
+    "GCS_BUCKET_ECTS_FINANCIAL": "test-bbg-financial",
+    "GCS_BLOB_PREFIX_ECTS_FINANCIAL": "bbg/financial",
+    "GCS_BUCKET_ECTS_SEGMENT": "test-bbg-segment",
+    "GCS_BLOB_PREFIX_ECTS_SEGMENT": "bbg/segment",
+    "GCS_BUCKET_COMPANY_CONFIG": "test-company-config",
+    "GCS_BLOB_PREFIX_PRE_EARNINGS_CONFIG": "configs/pre_earnings",
+    "GCS_BLOB_PREFIX_ECTS_CONFIG": "configs/ects",
+    "ANTHROPIC_API_KEY": "sk-ant-test",
+    "ANTHROPIC_MODEL": "claude-test",
+    "ANTHROPIC_MODEL_MAX_TOKENS": "1024",
+    "ANTHROPIC_API_BASE_URL": "https://api.anthropic.com",
+    "ANTHROPIC_REQUEST_TIMEOUT_SECONDS": "30",
+    "ANTHROPIC_MAX_RETRIES": "3",
+    "ANTHROPIC_RETRY_BASE_DELAY_SECONDS": "1",
+    "ANTHROPIC_WEB_SEARCH_MAX_USES": "5",
+    "PRE_EARNINGS_DEFAULT_START_OFFSET_MINUTES": "30",
+    "PRE_EARNINGS_DEFAULT_POLL_INTERVAL_MINUTES": "10",
+    "PRE_EARNINGS_DEFAULT_MAX_ATTEMPTS": "12",
+}
+
+
+@pytest.fixture
+def env_vars(monkeypatch):
+    """Set all required env vars to test values."""
+    for k, v in REQUIRED_ENV.items():
+        monkeypatch.setenv(k, v)
+
+    # Clear lru_cache so each test sees freshly-resolved settings
+    from common import config as _cfg
+
+    _cfg.get_settings.cache_clear()
+    yield
+    _cfg.get_settings.cache_clear()
+
+
+# --- pytest-asyncio config --------------------------------------------------
+
+@pytest.fixture
+def event_loop_policy():
+    """Default policy is fine; this hook lets per-test loops be customized later."""
+    return asyncio.DefaultEventLoopPolicy()

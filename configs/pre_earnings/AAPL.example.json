@@ -1,0 +1,44 @@
+{
+  "ticker": "AAPL",
+  "company_name": "Apple Inc.",
+
+  "press_release_urls": [
+    "https://www.apple.com/newsroom/",
+    "https://investor.apple.com/investor-relations/default.aspx"
+  ],
+
+  "financial_topics": [
+    "iPhone revenue",
+    "Services revenue",
+    "Greater China revenue",
+    "Gross margin",
+    "Operating income by segment",
+    "EPS (diluted)",
+    "Capital return (buyback + dividend)",
+    "Forward guidance"
+  ],
+
+  "polling": {
+    "start_offset_minutes": 30,
+    "interval_minutes": 5,
+    "max_attempts": 24
+  },
+
+  "summary_template": {
+    "language": "en",
+    "sections": [
+      "Headline numbers",
+      "Segment breakdown",
+      "Geographic breakdown",
+      "Margin and profitability",
+      "Capital return",
+      "Forward guidance"
+    ],
+    "style_guidance": "Concise. Use bullet points. Include YoY % deltas where source provides them. Quote management commentary verbatim only when the original phrasing matters (<=15 words)."
+  },
+
+  "prompt_extras": {
+    "additional_context": "Apple typically reports Q1 in January (covering Oct-Dec). Pay attention to Services attach rate.",
+    "must_check_phrases": ["10-Q", "press release", "Earnings announcement"]
+  }
+}

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: earnings-intel-pre-earnings-config
+  namespace: tmic
+data:
+  workflow.env: |
+    APP_MODE=pre_earnings
+    GCP_PUBSUB_SUBSCRIPTION=earnings-events-pre-earnings-sub

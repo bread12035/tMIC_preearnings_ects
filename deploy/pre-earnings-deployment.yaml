@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pre-earnings
+  namespace: tmic
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: pre-earnings }
+  template:
+    metadata:
+      labels: { app: pre-earnings }
+      # Roll the pods when ConfigMap or Secret content changes.
+      # Set these annotations in CI/CD to a hash of the source content.
+      annotations:
+        config-hash/shared: "REPLACE_AT_DEPLOY"
+        config-hash/workflow: "REPLACE_AT_DEPLOY"
+        config-hash/secret: "REPLACE_AT_DEPLOY"
+    spec:
+      serviceAccountName: earnings-intel-sa
+      terminationGracePeriodSeconds: 60
+
+      volumes:
+        - name: env-shared
+          configMap:
+            name: earnings-intel-shared-config
+        - name: env-workflow
+          configMap:
+            name: earnings-intel-pre-earnings-config
+        - name: env-secret
+          secret:
+            secretName: earnings-intel-secret
+        - name: app-env
+          emptyDir: {}      # writable home for the assembled /app/.env
+
+      initContainers:
+        - name: env-builder
+          image: busybox:1.36
+          # Concat order = precedence (later wins for duplicate keys, just like dotenv):
+          #   1. shared (defaults + non-sensitive)
+          #   2. workflow (overrides APP_MODE, subscription)
+          #   3. secret  (sensitive - never duplicate, just appended)
+          # Trailing newlines between blocks ensure dotenv parsing is clean.
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              {
+                cat /config-shared/shared.env
+                printf "\n"
+                cat /config-workflow/workflow.env
+                printf "\n"
+                cat /secret/secret.env
+                printf "\n"
+              } > /app-env/.env
+              chmod 0400 /app-env/.env
+          volumeMounts:
+            - { name: env-shared,   mountPath: /config-shared,   readOnly: true }
+            - { name: env-workflow, mountPath: /config-workflow, readOnly: true }
+            - { name: env-secret,   mountPath: /secret,          readOnly: true }
+            - { name: app-env,      mountPath: /app-env }
+
+      containers:
+        - name: app
+          image: REGION-docker.pkg.dev/PROJECT/REPO/earnings-intel:VERSION
+          workingDir: /app
+          # We deliberately do NOT use envFrom or env. All settings come from /app/.env.
+          # The only exception is GOOGLE_CLOUD_PROJECT, which some Google client libs read
+          # before our load_dotenv() runs (e.g. during library import). Set it explicitly:
+          env:
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "my-gcp-project"
+          volumeMounts:
+            - name: app-env
+              mountPath: /app/.env
+              subPath: .env
+              readOnly: true
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits:   { cpu: "2",    memory: "2Gi" }
+          readinessProbe:
+            exec: { command: ["/bin/sh", "-c", "test -f /tmp/ready"] }
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["/bin/sh", "-c", "test -f /tmp/alive"] }
+            periodSeconds: 30
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pre-earnings-hpa
+  namespace: tmic
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pre-earnings
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: pubsub.googleapis.com|subscription|num_undelivered_messages
+          selector:
+            matchLabels:
+              resource.labels.subscription_id: earnings-events-pre-earnings-sub
+        target:
+          type: AverageValue
+          averageValue: "5"

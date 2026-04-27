@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: earnings-intel-shared-config
+  namespace: tmic
+data:
+  # The KEY here is the filename; its content is .env-format text.
+  shared.env: |
+    LOG_LEVEL=INFO
+    ENVIRONMENT=production
+
+    GCP_PROJECT_ID=my-gcp-project
+    GCP_PUBSUB_TOPIC=earnings-events
+    GCP_PUBSUB_MAX_INFLIGHT=20
+    GCP_PUBSUB_ACK_DEADLINE_SECONDS=600
+
+    GCS_PROJECT_ID=my-gcp-project
+    GCS_CUSTOM_STORAGE_ENDPOINT=
+
+    GCS_BUCKET_PRE_EARNINGS_OUTPUT=tmic-prod-pre-earnings
+    GCS_BLOB_PREFIX_PRE_EARNINGS_OUTPUT=digwork/tmic/pre_earnings_summary
+    GCS_BUCKET_ECTS_OUTPUT=tmic-prod-ects
+    GCS_BLOB_PREFIX_ECTS_OUTPUT=digwork/tmic/ects_summary
+
+    GCS_BUCKET_ECTS_TRANSCRIPT=tmic-prod-bbg-transcript
+    GCS_BLOB_PREFIX_ECTS_TRANSCRIPT=bbg/transcript
+    GCS_BUCKET_ECTS_FINANCIAL=tmic-prod-bbg-financial
+    GCS_BLOB_PREFIX_ECTS_FINANCIAL=bbg/financial
+    GCS_BUCKET_ECTS_SEGMENT=tmic-prod-bbg-segment
+    GCS_BLOB_PREFIX_ECTS_SEGMENT=bbg/segment
+
+    GCS_BUCKET_COMPANY_CONFIG=tmic-prod-company-config
+    GCS_BLOB_PREFIX_PRE_EARNINGS_CONFIG=configs/pre_earnings
+    GCS_BLOB_PREFIX_ECTS_CONFIG=configs/ects
+
+    ANTHROPIC_MODEL=claude-opus-4-7
+    ANTHROPIC_MODEL_MAX_TOKENS=8192
+    ANTHROPIC_API_BASE_URL=https://api.anthropic.com
+    ANTHROPIC_REQUEST_TIMEOUT_SECONDS=120
+    ANTHROPIC_MAX_RETRIES=5
+    ANTHROPIC_RETRY_BASE_DELAY_SECONDS=2
+    ANTHROPIC_WEB_SEARCH_MAX_USES=10
+
+    PRE_EARNINGS_DEFAULT_START_OFFSET_MINUTES=30
+    PRE_EARNINGS_DEFAULT_POLL_INTERVAL_MINUTES=10
+    PRE_EARNINGS_DEFAULT_MAX_ATTEMPTS=12
