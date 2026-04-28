@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: calendar-sync
+  namespace: tmic
+spec:
+  schedule: "0 1 * * 1"            # Weekly, Monday UTC 01:00
+  concurrencyPolicy: Forbid         # Never allow overlapping runs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          annotations:
+            config-hash/shared: "REPLACE_AT_DEPLOY"
+            config-hash/workflow: "REPLACE_AT_DEPLOY"
+            config-hash/secret: "REPLACE_AT_DEPLOY"
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: earnings-intel-sa
+
+          volumes:
+            - name: env-shared
+              configMap:
+                name: earnings-intel-shared-config
+            - name: env-workflow
+              configMap:
+                name: earnings-intel-calendar-sync-config
+            - name: env-secret
+              secret:
+                secretName: earnings-intel-secret
+            - name: app-env
+              emptyDir: {}
+
+          initContainers:
+            - name: env-builder
+              image: busybox:1.36
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  {
+                    cat /config-shared/shared.env
+                    printf "\n"
+                    cat /config-workflow/workflow.env
+                    printf "\n"
+                    cat /secret/secret.env
+                    printf "\n"
+                  } > /app-env/.env
+                  chmod 0400 /app-env/.env
+              volumeMounts:
+                - { name: env-shared,   mountPath: /config-shared,   readOnly: true }
+                - { name: env-workflow, mountPath: /config-workflow, readOnly: true }
+                - { name: env-secret,   mountPath: /secret,          readOnly: true }
+                - { name: app-env,      mountPath: /app-env }
+
+          containers:
+            - name: app
+              image: REGION-docker.pkg.dev/PROJECT/REPO/earnings-intel:VERSION
+              workingDir: /app
+              env:
+                - name: GOOGLE_CLOUD_PROJECT
+                  value: "my-gcp-project"
+              volumeMounts:
+                - name: app-env
+                  mountPath: /app/.env
+                  subPath: .env
+                  readOnly: true
+              resources:
+                requests: { cpu: "100m", memory: "256Mi" }
+                limits:   { cpu: "500m", memory: "512Mi" }

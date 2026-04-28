@@ -52,7 +52,7 @@ class FakeGCSService:
     ) -> str:
         return (await self.read_bytes(bucket, blob_path)).decode(encoding)
 
-    async def read_json(self, bucket: str, blob_path: str) -> dict:
+    async def read_json(self, bucket: str, blob_path: str):
         return json.loads(await self.read_text(bucket, blob_path))
 
     async def read_parquet_bytes(self, bucket: str, blob_path: str) -> bytes:
@@ -68,6 +68,20 @@ class FakeGCSService:
         if (bucket, blob_path) in self.write_errors:
             raise GCSWriteError(f"forced failure for gs://{bucket}/{blob_path}")
         self.objects[(bucket, blob_path)] = content.encode("utf-8")
+
+    async def write_json(self, bucket: str, blob_path: str, payload) -> None:
+        await self.write_text(
+            bucket,
+            blob_path,
+            json.dumps(payload, indent=2, sort_keys=True),
+            content_type="application/json; charset=utf-8",
+        )
+
+    async def list_blobs(self, bucket: str, prefix: str) -> list[str]:
+        return [
+            path for (b, path) in self.objects.keys()
+            if b == bucket and path.startswith(prefix)
+        ]
 
     async def exists(self, bucket: str, blob_path: str) -> bool:
         return (bucket, blob_path) in self.objects
@@ -114,6 +128,14 @@ REQUIRED_ENV: dict[str, str] = {
     "PRE_EARNINGS_DEFAULT_START_OFFSET_MINUTES": "30",
     "PRE_EARNINGS_DEFAULT_POLL_INTERVAL_MINUTES": "10",
     "PRE_EARNINGS_DEFAULT_MAX_ATTEMPTS": "12",
+    "EVENT_CALENDAR_WATCHLIST_BUCKET": "test-watchlist-bucket",
+    "EVENT_CALENDAR_WATCHLIST_BLOB": "configs/watchlist.json",
+    "EVENT_CALENDAR_REGISTRY_BUCKET": "test-registry-bucket",
+    "EVENT_CALENDAR_REGISTRY_PREFIX": "configs/event_calendar",
+    "EVENT_CALENDAR_LOOKAHEAD_DAYS": "14",
+    "EVENT_CALENDAR_PRE_EARNINGS_OFFSET_MINUTES": "-30",
+    "EVENT_CALENDAR_ECTS_OFFSET_MINUTES": "30",
+    "EVENT_CALENDAR_DISPATCH_WINDOW_MINUTES": "10",
 }
 
 

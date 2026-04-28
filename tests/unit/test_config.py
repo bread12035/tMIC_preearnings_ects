@@ -73,3 +73,49 @@ def test_bool_helper_with_invalid_value(monkeypatch) -> None:
     monkeypatch.setenv("BAD_BOOL", "maybe")
     with pytest.raises(RuntimeError, match="BAD_BOOL"):
         _bool("BAD_BOOL", False)
+
+
+def test_event_calendar_settings_loaded(env_vars) -> None:
+    s = get_settings()
+    assert s.event_calendar_watchlist_bucket == "test-watchlist-bucket"
+    assert s.event_calendar_watchlist_blob == "configs/watchlist.json"
+    assert s.event_calendar_registry_bucket == "test-registry-bucket"
+    assert s.event_calendar_registry_prefix == "configs/event_calendar"
+    assert s.event_calendar_lookahead_days == 14
+    assert s.event_calendar_pre_earnings_offset_minutes == -30
+    assert s.event_calendar_ects_offset_minutes == 30
+    assert s.event_calendar_dispatch_window_minutes == 10
+
+
+def test_calendar_sync_app_mode_does_not_require_subscription(
+    env_vars, monkeypatch
+) -> None:
+    monkeypatch.setenv("APP_MODE", "calendar_sync")
+    monkeypatch.delenv("GCP_PUBSUB_SUBSCRIPTION", raising=False)
+    from common import config as _cfg
+
+    _cfg.get_settings.cache_clear()
+    s = get_settings()
+    assert s.app_mode == "calendar_sync"
+    assert s.gcp_pubsub_subscription is None
+
+
+def test_task_dispatcher_app_mode_does_not_require_subscription(
+    env_vars, monkeypatch
+) -> None:
+    monkeypatch.setenv("APP_MODE", "task_dispatcher")
+    monkeypatch.delenv("GCP_PUBSUB_SUBSCRIPTION", raising=False)
+    from common import config as _cfg
+
+    _cfg.get_settings.cache_clear()
+    s = get_settings()
+    assert s.app_mode == "task_dispatcher"
+
+
+def test_invalid_app_mode_lists_all_valid_modes(env_vars, monkeypatch) -> None:
+    monkeypatch.setenv("APP_MODE", "bogus")
+    from common import config as _cfg
+
+    _cfg.get_settings.cache_clear()
+    with pytest.raises(RuntimeError, match="task_dispatcher"):
+        get_settings()

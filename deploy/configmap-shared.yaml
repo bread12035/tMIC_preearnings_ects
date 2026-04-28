@@ -57,3 +57,11 @@ data:
     PROMPT_ECTS_WEB_SEARCH_SYSTEM_PATH=/app/prompts/ects_web_search_system.md.tmpl
     PROMPT_ECTS_WEB_SEARCH_USER_PATH=/app/prompts/ects_web_search_user.md.tmpl
     PROMPT_ECTS_WEB_SEARCH_TEMPLATE_PATH=/app/prompts/ects_web_search_template.md.tmpl
+
+    # Event calendar (calendar_sync + task_dispatcher CronJobs)
+    EVENT_CALENDAR_WATCHLIST_BUCKET=tmic-prod-company-config
+    EVENT_CALENDAR_WATCHLIST_BLOB=configs/watchlist.json
+    EVENT_CALENDAR_REGISTRY_BUCKET=tmic-prod-company-config
+    EVENT_CALENDAR_REGISTRY_PREFIX=configs/event_calendar
+    EVENT_CALENDAR_PRE_EARNINGS_OFFSET_MINUTES=-30
+    EVENT_CALENDAR_ECTS_OFFSET_MINUTES=30
