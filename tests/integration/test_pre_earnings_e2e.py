@@ -51,6 +51,9 @@ async def test_pre_earnings_e2e(fake_gcs) -> None:
         output_bucket="pe-out",
         output_prefix="digwork/tmic/pre_earnings_summary",
         web_search_max_uses=5,
+        stocktitan_news_url="https://www.stocktitan.net/news",
+        prompt_system_path="prompts/pre_earnings_system.md.tmpl",
+        prompt_user_path="prompts/pre_earnings_user.md.tmpl",
     )
     worker = PreEarningsWorker(monitor)
 

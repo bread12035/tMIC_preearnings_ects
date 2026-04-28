@@ -1,0 +1,19 @@
+Find the official financial results / earnings press release for:
+  Ticker: {ticker}
+  Company: {company_name}
+  Fiscal Year: {fiscal_year}
+  Fiscal Quarter: {fiscal_quarter}
+
+Use Stock Titan news ({stocktitan_news_url}) as your primary source.{fallback_user_hint}
+
+If found, produce a Markdown summary covering these topics:
+{topics_block}
+
+Organize the summary into these sections:
+{sections_block}
+
+Style: {style_guidance}
+Language: {language}
+{additional_context}
+Output the summary in Markdown.
+If no published results are available yet, respond with PRESS_RELEASE_NOT_AVAILABLE.

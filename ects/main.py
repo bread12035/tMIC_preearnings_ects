@@ -59,6 +59,15 @@ async def amain() -> None:
         gcs=gcs,
         output_bucket=settings.gcs_bucket_ects_output,
         output_prefix=settings.gcs_blob_prefix_ects_output,
+        web_search_flag=settings.ects_web_search_flag,
+        web_search_max_uses=settings.anthropic_web_search_max_uses,
+        stocktitan_news_url=settings.stocktitan_news_url,
+        motley_fool_url=settings.motley_fool_url,
+        prompt_system_path=settings.prompt_ects_system_path,
+        prompt_user_path=settings.prompt_ects_user_path,
+        prompt_web_search_system_path=settings.prompt_ects_web_search_system_path,
+        prompt_web_search_user_path=settings.prompt_ects_web_search_user_path,
+        prompt_web_search_template_path=settings.prompt_ects_web_search_template_path,
     )
 
     subscriber = AsyncSubscriber(

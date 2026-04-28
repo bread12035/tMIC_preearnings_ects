@@ -8,6 +8,7 @@ resources:
   - configmap-shared.yaml
   - configmap-pre-earnings.yaml
   - configmap-ects.yaml
+  - configmap-prompts.yaml
   # secret.yaml is intentionally NOT listed; manage with sealed-secrets / SOPS
   # / External Secrets Operator. secret.yaml.example shows the shape only.
   - pre-earnings-deployment.yaml

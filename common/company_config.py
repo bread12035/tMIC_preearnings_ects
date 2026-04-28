@@ -20,17 +20,24 @@ class PollingConfig(BaseModel):
 
 class SummaryTemplate(BaseModel):
     language: str = "en"
-    sections: list[str]
+    sections: list[str] = Field(default_factory=list)
     style_guidance: str = ""
 
 
 class PreEarningsCompanyConfig(BaseModel):
+    """
+    Per-company configuration. Only ``ticker`` and ``company_name`` are
+    required; everything else is optional so a bare config (no IR URL,
+    no topics) can still drive a Stock Titan-only lookup using just
+    ticker + company_name + fiscal year/quarter.
+    """
+
     ticker: str
     company_name: str
-    press_release_urls: list[str]
-    financial_topics: list[str]
+    press_release_urls: list[str] = Field(default_factory=list)
+    financial_topics: list[str] = Field(default_factory=list)
     polling: PollingConfig = Field(default_factory=PollingConfig)
-    summary_template: SummaryTemplate
+    summary_template: SummaryTemplate = Field(default_factory=SummaryTemplate)
     prompt_extras: dict = Field(default_factory=dict)
 
 

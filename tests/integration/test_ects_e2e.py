@@ -126,3 +126,47 @@ async def test_ects_e2e_missing_data_acks_without_output(fake_gcs) -> None:
     claude.complete.assert_not_awaited()
     # No output written
     assert not any(k[0] == "ects-out" for k in fake_gcs.objects.keys())
+
+
+@pytest.mark.asyncio
+async def test_ects_e2e_web_search_mode(fake_gcs) -> None:
+    """When web_search_flag=True, skip GCS data pulls; just call Claude with the
+    Stock Titan + Motley Fool prompt and write the summary."""
+    # Processor must NOT be invoked.
+    processor = MagicMock()
+    processor.load_and_process = AsyncMock(side_effect=AssertionError("called"))
+
+    claude = MagicMock()
+    claude.complete = AsyncMock(return_value="## Summary\nGreat quarter from web.")
+
+    worker = ECTSWorker(
+        processor=processor,
+        claude=claude,
+        gcs=fake_gcs,
+        output_bucket="ects-out",
+        output_prefix="digwork/tmic/ects_summary",
+        web_search_flag=True,
+        web_search_max_uses=5,
+        stocktitan_news_url="https://www.stocktitan.net/news",
+        motley_fool_url="https://www.fool.com/earnings-call-transcripts",
+    )
+
+    ok = await worker.handle(
+        {"ticker": "AAPL", "fiscal_year": "2026", "fiscal_quarter": "Q2"}, {}
+    )
+    assert ok is True
+
+    processor.load_and_process.assert_not_awaited()
+    # Claude was called with web_search tool wired in
+    assert claude.complete.await_count == 1
+    call_kwargs = claude.complete.await_args.kwargs
+    assert "tools" in call_kwargs and call_kwargs["tools"]
+    assert call_kwargs["tools"][0]["name"] == "web_search"
+
+    expected_path = (
+        "digwork/tmic/ects_summary/company=AAPL/quarter=Q2/fiscal=2026/"
+        "AAPL_FY_Q2_2026.md"
+    )
+    assert ("ects-out", expected_path) in fake_gcs.objects
+    body = fake_gcs.objects[("ects-out", expected_path)].decode("utf-8")
+    assert "Great quarter from web" in body

@@ -17,6 +17,9 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 COPY common/ ./common/
 COPY pre_earnings/ ./pre_earnings/
 COPY ects/ ./ects/
+# Prompt templates baked in as a fallback. In K8s the same dir is overlaid
+# by the earnings-intel-prompts-config ConfigMap mounted on /app/prompts.
+COPY prompts/ ./prompts/
 
 # Entrypoint dispatches by APP_MODE (which lives inside /app/.env,
 # assembled by the initContainer at Pod start - not in shell env).

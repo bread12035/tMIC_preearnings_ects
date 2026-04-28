@@ -37,6 +37,9 @@ class PreEarningsMonitor:
         output_bucket: str,
         output_prefix: str,
         web_search_max_uses: int,
+        stocktitan_news_url: str,
+        prompt_system_path: str,
+        prompt_user_path: str,
     ):
         self._gcs = gcs
         self._claude = claude
@@ -44,6 +47,9 @@ class PreEarningsMonitor:
         self._output_bucket = output_bucket
         self._output_prefix = output_prefix
         self._web_search_max_uses = web_search_max_uses
+        self._stocktitan_news_url = stocktitan_news_url
+        self._prompt_system_path = prompt_system_path
+        self._prompt_user_path = prompt_user_path
 
     async def run(self, msg: PreEarningsMessage) -> None:
         try:
@@ -111,7 +117,13 @@ class PreEarningsMonitor:
     async def _try_fetch_and_summarize(
         self, msg: PreEarningsMessage, cfg: PreEarningsCompanyConfig
     ) -> str:
-        system, user = build_pre_earnings_prompt(msg, cfg)
+        system, user = build_pre_earnings_prompt(
+            msg,
+            cfg,
+            stocktitan_news_url=self._stocktitan_news_url,
+            system_template_path=self._prompt_system_path,
+            user_template_path=self._prompt_user_path,
+        )
         result = await self._claude.complete(
             system=system,
             user_prompt=user,
