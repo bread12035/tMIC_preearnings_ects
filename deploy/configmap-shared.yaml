@@ -44,3 +44,16 @@ data:
     PRE_EARNINGS_DEFAULT_START_OFFSET_MINUTES=30
     PRE_EARNINGS_DEFAULT_POLL_INTERVAL_MINUTES=10
     PRE_EARNINGS_DEFAULT_MAX_ATTEMPTS=12
+
+    # Web search sources (used by pre-earnings + ECTS web-search mode)
+    STOCKTITAN_NEWS_URL=https://www.stocktitan.net/news
+    MOTLEY_FOOL_URL=https://www.fool.com/earnings-call-transcripts
+
+    # Prompt template paths (mounted from earnings-intel-prompts-config at /app/prompts)
+    PROMPT_PRE_EARNINGS_SYSTEM_PATH=/app/prompts/pre_earnings_system.md.tmpl
+    PROMPT_PRE_EARNINGS_USER_PATH=/app/prompts/pre_earnings_user.md.tmpl
+    PROMPT_ECTS_SYSTEM_PATH=/app/prompts/ects_system.md.tmpl
+    PROMPT_ECTS_USER_PATH=/app/prompts/ects_user.md.tmpl
+    PROMPT_ECTS_WEB_SEARCH_SYSTEM_PATH=/app/prompts/ects_web_search_system.md.tmpl
+    PROMPT_ECTS_WEB_SEARCH_USER_PATH=/app/prompts/ects_web_search_user.md.tmpl
+    PROMPT_ECTS_WEB_SEARCH_TEMPLATE_PATH=/app/prompts/ects_web_search_template.md.tmpl

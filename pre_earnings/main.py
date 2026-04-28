@@ -54,6 +54,9 @@ async def amain() -> None:
         output_bucket=settings.gcs_bucket_pre_earnings_output,
         output_prefix=settings.gcs_blob_prefix_pre_earnings_output,
         web_search_max_uses=settings.anthropic_web_search_max_uses,
+        stocktitan_news_url=settings.stocktitan_news_url,
+        prompt_system_path=settings.prompt_pre_earnings_system_path,
+        prompt_user_path=settings.prompt_pre_earnings_user_path,
     )
     worker = PreEarningsWorker(monitor)
 

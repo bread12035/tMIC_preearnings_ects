@@ -7,3 +7,7 @@ data:
   workflow.env: |
     APP_MODE=ects
     GCP_PUBSUB_SUBSCRIPTION=earnings-events-ects-sub
+
+    # Set to "true" to summarize from web sources (Stock Titan + Motley Fool)
+    # instead of GCS-loaded transcript/financial/segment parquet.
+    ECTS_WEB_SEARCH_FLAG=false

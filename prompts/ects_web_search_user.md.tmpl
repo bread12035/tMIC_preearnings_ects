@@ -1,0 +1,18 @@
+# Earnings Call Transcript Summary Request
+
+**Ticker**: {ticker}
+**Fiscal Year**: {fiscal_year}
+**Fiscal Quarter**: {fiscal_quarter}
+
+Step 1 — Financial results: use web_search on Stock Titan ({stocktitan_news_url}) to retrieve the financial statements / results for this quarter.
+Step 2 — Transcript: use web_search on Motley Fool ({motley_fool_url}) to retrieve the earnings call transcript for this quarter.
+Step 3 — Combine the two sources and produce a Markdown summary using the template below. Cite specific numbers from the financial results.
+
+---
+
+Template:
+{template}
+
+---
+
+If you cannot locate one or both sources, respond with ECTS_SOURCES_NOT_AVAILABLE.

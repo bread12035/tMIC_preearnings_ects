@@ -65,6 +65,18 @@ def _int(key: str, default: int) -> int:
         raise RuntimeError(f"Env var {key}={raw!r} is not a valid int") from e
 
 
+def _bool(key: str, default: bool) -> bool:
+    raw = os.getenv(key)
+    if raw is None or raw == "":
+        return default
+    val = raw.strip().lower()
+    if val in ("1", "true", "yes", "on"):
+        return True
+    if val in ("0", "false", "no", "off"):
+        return False
+    raise RuntimeError(f"Env var {key}={raw!r} is not a valid bool")
+
+
 # --- Settings -------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -115,6 +127,24 @@ class Settings:
     pre_earnings_default_start_offset_minutes: int
     pre_earnings_default_poll_interval_minutes: int
     pre_earnings_default_max_attempts: int
+
+    # Web search sources (used by both workflows)
+    stocktitan_news_url: str
+    motley_fool_url: str
+
+    # ECTS web-search mode
+    ects_web_search_flag: bool
+
+    # Prompt template paths (rendered via str.format on disk).
+    # Default to the in-image `prompts/` dir; CD may override individual paths
+    # to point at ConfigMap-mounted overrides.
+    prompt_pre_earnings_system_path: str
+    prompt_pre_earnings_user_path: str
+    prompt_ects_system_path: str
+    prompt_ects_user_path: str
+    prompt_ects_web_search_system_path: str
+    prompt_ects_web_search_user_path: str
+    prompt_ects_web_search_template_path: str
 
     def safe_dict(self) -> dict:
         """Return all fields with the API key redacted, for log/debug."""
@@ -186,5 +216,38 @@ def get_settings() -> Settings:
         ),
         pre_earnings_default_max_attempts=_int(
             "PRE_EARNINGS_DEFAULT_MAX_ATTEMPTS", 12
+        ),
+        stocktitan_news_url=_optional(  # type: ignore[arg-type]
+            "STOCKTITAN_NEWS_URL", "https://www.stocktitan.net/news"
+        ),
+        motley_fool_url=_optional(  # type: ignore[arg-type]
+            "MOTLEY_FOOL_URL", "https://www.fool.com/earnings-call-transcripts"
+        ),
+        ects_web_search_flag=_bool("ECTS_WEB_SEARCH_FLAG", False),
+        prompt_pre_earnings_system_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_PRE_EARNINGS_SYSTEM_PATH",
+            "prompts/pre_earnings_system.md.tmpl",
+        ),
+        prompt_pre_earnings_user_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_PRE_EARNINGS_USER_PATH",
+            "prompts/pre_earnings_user.md.tmpl",
+        ),
+        prompt_ects_system_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_ECTS_SYSTEM_PATH", "prompts/ects_system.md.tmpl"
+        ),
+        prompt_ects_user_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_ECTS_USER_PATH", "prompts/ects_user.md.tmpl"
+        ),
+        prompt_ects_web_search_system_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_ECTS_WEB_SEARCH_SYSTEM_PATH",
+            "prompts/ects_web_search_system.md.tmpl",
+        ),
+        prompt_ects_web_search_user_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_ECTS_WEB_SEARCH_USER_PATH",
+            "prompts/ects_web_search_user.md.tmpl",
+        ),
+        prompt_ects_web_search_template_path=_optional(  # type: ignore[arg-type]
+            "PROMPT_ECTS_WEB_SEARCH_TEMPLATE_PATH",
+            "prompts/ects_web_search_template.md.tmpl",
         ),
     )
