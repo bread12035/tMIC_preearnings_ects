@@ -1,0 +1,16 @@
+[
+  {
+    "ticker": "AAPL",
+    "company_name": "Apple Inc.",
+    "fiscal_year": "2026",
+    "fiscal_quarter": "Q2",
+    "override_call_time": null
+  },
+  {
+    "ticker": "TSLA",
+    "company_name": "Tesla Inc.",
+    "fiscal_year": "2026",
+    "fiscal_quarter": "Q2",
+    "override_call_time": "2026-04-23T21:00:00Z"
+  }
+]

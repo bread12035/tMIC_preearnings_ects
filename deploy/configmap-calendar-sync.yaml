@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: earnings-intel-calendar-sync-config
+  namespace: tmic
+data:
+  workflow.env: |
+    APP_MODE=calendar_sync
+    EVENT_CALENDAR_LOOKAHEAD_DAYS=14

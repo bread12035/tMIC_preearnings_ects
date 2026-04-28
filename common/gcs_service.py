@@ -51,6 +51,17 @@ class GCSService:
             self._write_text_sync, bucket, blob_path, content, content_type
         )
 
+    async def write_json(self, bucket: str, blob_path: str, payload) -> None:
+        await self.write_text(
+            bucket,
+            blob_path,
+            json.dumps(payload, indent=2, sort_keys=True),
+            content_type="application/json; charset=utf-8",
+        )
+
+    async def list_blobs(self, bucket: str, prefix: str) -> list[str]:
+        return await asyncio.to_thread(self._list_blobs_sync, bucket, prefix)
+
     async def exists(self, bucket: str, blob_path: str) -> bool:
         return await asyncio.to_thread(self._exists_sync, bucket, blob_path)
 
@@ -75,3 +86,9 @@ class GCSService:
 
     def _exists_sync(self, bucket: str, blob_path: str) -> bool:
         return self._client.bucket(bucket).blob(blob_path).exists()
+
+    def _list_blobs_sync(self, bucket: str, prefix: str) -> list[str]:
+        return [
+            blob.name
+            for blob in self._client.list_blobs(bucket, prefix=prefix)
+        ]

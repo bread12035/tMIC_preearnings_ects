@@ -82,14 +82,14 @@ def _bool(key: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     # App
-    app_mode: Literal["pre_earnings", "ects"]
+    app_mode: Literal["pre_earnings", "ects", "calendar_sync", "task_dispatcher"]
     log_level: str
     environment: str
 
     # GCP / Pub/Sub
     gcp_project_id: str
     gcp_pubsub_topic: str
-    gcp_pubsub_subscription: str
+    gcp_pubsub_subscription: str | None
     gcp_pubsub_max_inflight: int
     gcp_pubsub_ack_deadline_seconds: int
 
@@ -146,6 +146,16 @@ class Settings:
     prompt_ects_web_search_user_path: str
     prompt_ects_web_search_template_path: str
 
+    # Event calendar (calendar_sync + task_dispatcher CronJobs)
+    event_calendar_watchlist_bucket: str | None
+    event_calendar_watchlist_blob: str
+    event_calendar_registry_bucket: str | None
+    event_calendar_registry_prefix: str
+    event_calendar_lookahead_days: int
+    event_calendar_pre_earnings_offset_minutes: int
+    event_calendar_ects_offset_minutes: int
+    event_calendar_dispatch_window_minutes: int
+
     def safe_dict(self) -> dict:
         """Return all fields with the API key redacted, for log/debug."""
         d = {f: getattr(self, f) for f in self.__dataclass_fields__}
@@ -161,10 +171,17 @@ def get_settings() -> Settings:
     Cached so repeated calls don't re-read os.environ.
     """
     app_mode = _require("APP_MODE")
-    if app_mode not in ("pre_earnings", "ects"):
+    valid_modes = ("pre_earnings", "ects", "calendar_sync", "task_dispatcher")
+    if app_mode not in valid_modes:
         raise RuntimeError(
-            f"APP_MODE must be 'pre_earnings' or 'ects', got {app_mode!r}"
+            f"APP_MODE must be one of {valid_modes}, got {app_mode!r}"
         )
+
+    # Subscription is only required for the two consumer Deployments
+    if app_mode in ("pre_earnings", "ects"):
+        gcp_pubsub_subscription: str | None = _require("GCP_PUBSUB_SUBSCRIPTION")
+    else:
+        gcp_pubsub_subscription = _optional("GCP_PUBSUB_SUBSCRIPTION")
 
     return Settings(
         app_mode=app_mode,  # type: ignore[arg-type]
@@ -172,7 +189,7 @@ def get_settings() -> Settings:
         environment=_optional("ENVIRONMENT", "production"),  # type: ignore[arg-type]
         gcp_project_id=_require("GCP_PROJECT_ID"),
         gcp_pubsub_topic=_require("GCP_PUBSUB_TOPIC"),
-        gcp_pubsub_subscription=_require("GCP_PUBSUB_SUBSCRIPTION"),
+        gcp_pubsub_subscription=gcp_pubsub_subscription,
         gcp_pubsub_max_inflight=_int("GCP_PUBSUB_MAX_INFLIGHT", 20),
         gcp_pubsub_ack_deadline_seconds=_int("GCP_PUBSUB_ACK_DEADLINE_SECONDS", 600),
         gcs_project_id=_require("GCS_PROJECT_ID"),
@@ -249,5 +266,27 @@ def get_settings() -> Settings:
         prompt_ects_web_search_template_path=_optional(  # type: ignore[arg-type]
             "PROMPT_ECTS_WEB_SEARCH_TEMPLATE_PATH",
             "prompts/ects_web_search_template.md.tmpl",
+        ),
+        event_calendar_watchlist_bucket=_optional(
+            "EVENT_CALENDAR_WATCHLIST_BUCKET"
+        ),
+        event_calendar_watchlist_blob=_optional(  # type: ignore[arg-type]
+            "EVENT_CALENDAR_WATCHLIST_BLOB", "configs/watchlist.json"
+        ),
+        event_calendar_registry_bucket=_optional(
+            "EVENT_CALENDAR_REGISTRY_BUCKET"
+        ),
+        event_calendar_registry_prefix=_optional(  # type: ignore[arg-type]
+            "EVENT_CALENDAR_REGISTRY_PREFIX", "configs/event_calendar"
+        ),
+        event_calendar_lookahead_days=_int("EVENT_CALENDAR_LOOKAHEAD_DAYS", 14),
+        event_calendar_pre_earnings_offset_minutes=_int(
+            "EVENT_CALENDAR_PRE_EARNINGS_OFFSET_MINUTES", -30
+        ),
+        event_calendar_ects_offset_minutes=_int(
+            "EVENT_CALENDAR_ECTS_OFFSET_MINUTES", 30
+        ),
+        event_calendar_dispatch_window_minutes=_int(
+            "EVENT_CALENDAR_DISPATCH_WINDOW_MINUTES", 10
         ),
     )

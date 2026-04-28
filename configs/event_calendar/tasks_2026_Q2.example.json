@@ -1,0 +1,22 @@
+[
+  {
+    "task_id": "AAPL-Q2-2026-pre_earnings",
+    "event_type": "pre_earnings",
+    "ticker": "AAPL",
+    "fiscal_year": "2026",
+    "fiscal_quarter": "Q2",
+    "event_time_iso": "2026-04-28T21:00:00",
+    "execution_time_iso": "2026-04-28T20:30:00",
+    "status": "pending"
+  },
+  {
+    "task_id": "AAPL-Q2-2026-ects",
+    "event_type": "ects",
+    "ticker": "AAPL",
+    "fiscal_year": "2026",
+    "fiscal_quarter": "Q2",
+    "event_time_iso": "2026-04-28T21:00:00",
+    "execution_time_iso": "2026-04-28T21:30:00",
+    "status": "published"
+  }
+]
