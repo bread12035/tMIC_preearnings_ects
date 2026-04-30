@@ -8,7 +8,6 @@ plus settings/env helpers.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
@@ -20,7 +19,7 @@ from common.exceptions import GCSObjectNotFound, GCSWriteError
 # --- Fake GCS ---------------------------------------------------------------
 
 class FakeGCSService:
-    """In-memory replacement for GCSService. Same async interface."""
+    """In-memory sync replacement for GCSService."""
 
     def __init__(self) -> None:
         # Keyed by (bucket, blob_path)
@@ -40,25 +39,25 @@ class FakeGCSService:
     def fail_write(self, bucket: str, blob_path: str) -> None:
         self.write_errors.add((bucket, blob_path))
 
-    # --- public async API (matches GCSService) ---
-    async def read_bytes(self, bucket: str, blob_path: str) -> bytes:
+    # --- public sync API (mirrors GCSService) ---
+    def read_bytes(self, bucket: str, blob_path: str) -> bytes:
         key = (bucket, blob_path)
         if key not in self.objects:
             raise GCSObjectNotFound(f"gs://{bucket}/{blob_path}")
         return self.objects[key]
 
-    async def read_text(
+    def read_text(
         self, bucket: str, blob_path: str, encoding: str = "utf-8"
     ) -> str:
-        return (await self.read_bytes(bucket, blob_path)).decode(encoding)
+        return self.read_bytes(bucket, blob_path).decode(encoding)
 
-    async def read_json(self, bucket: str, blob_path: str):
-        return json.loads(await self.read_text(bucket, blob_path))
+    def read_json(self, bucket: str, blob_path: str):
+        return json.loads(self.read_text(bucket, blob_path))
 
-    async def read_parquet_bytes(self, bucket: str, blob_path: str) -> bytes:
-        return await self.read_bytes(bucket, blob_path)
+    def read_parquet_bytes(self, bucket: str, blob_path: str) -> bytes:
+        return self.read_bytes(bucket, blob_path)
 
-    async def write_text(
+    def write_text(
         self,
         bucket: str,
         blob_path: str,
@@ -69,21 +68,21 @@ class FakeGCSService:
             raise GCSWriteError(f"forced failure for gs://{bucket}/{blob_path}")
         self.objects[(bucket, blob_path)] = content.encode("utf-8")
 
-    async def write_json(self, bucket: str, blob_path: str, payload) -> None:
-        await self.write_text(
+    def write_json(self, bucket: str, blob_path: str, payload) -> None:
+        self.write_text(
             bucket,
             blob_path,
             json.dumps(payload, indent=2, sort_keys=True),
             content_type="application/json; charset=utf-8",
         )
 
-    async def list_blobs(self, bucket: str, prefix: str) -> list[str]:
+    def list_blobs(self, bucket: str, prefix: str) -> list[str]:
         return [
             path for (b, path) in self.objects.keys()
             if b == bucket and path.startswith(prefix)
         ]
 
-    async def exists(self, bucket: str, blob_path: str) -> bool:
+    def exists(self, bucket: str, blob_path: str) -> bool:
         return (bucket, blob_path) in self.objects
 
 
@@ -151,11 +150,3 @@ def env_vars(monkeypatch):
     _cfg.get_settings.cache_clear()
     yield
     _cfg.get_settings.cache_clear()
-
-
-# --- pytest-asyncio config --------------------------------------------------
-
-@pytest.fixture
-def event_loop_policy():
-    """Default policy is fine; this hook lets per-test loops be customized later."""
-    return asyncio.DefaultEventLoopPolicy()

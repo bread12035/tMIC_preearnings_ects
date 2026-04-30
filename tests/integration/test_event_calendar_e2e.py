@@ -1,4 +1,4 @@
-"""End-to-end tests covering the calendar_sync + task_dispatcher pipeline.
+"""End-to-end tests covering the calendar_sync + task_dispatcher pipeline (sync).
 
 Both components run against the in-memory FakeGCSService and a stubbed
 publisher / Claude client — no real GCP or network IO.
@@ -7,7 +7,7 @@ publisher / Claude client — no real GCP or network IO.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,8 +23,7 @@ REGISTRY_BUCKET = "test-registry-bucket"
 REGISTRY_PREFIX = "configs/event_calendar"
 
 
-@pytest.mark.asyncio
-async def test_calendar_sync_seeds_registry_from_watchlist(fake_gcs) -> None:
+def test_calendar_sync_seeds_registry_from_watchlist(fake_gcs) -> None:
     """A watchlist with one manual-override entry should produce two
     ScheduledTasks (pre_earnings + ects) in the registry."""
     call_time = utcnow() + timedelta(days=2)
@@ -43,11 +42,11 @@ async def test_calendar_sync_seeds_registry_from_watchlist(fake_gcs) -> None:
     )
 
     claude = MagicMock()
-    claude.complete = AsyncMock(side_effect=AssertionError("must not call"))
+    claude.complete = MagicMock(side_effect=AssertionError("must not call"))
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
     registry = TaskRegistry(fake_gcs, REGISTRY_BUCKET, REGISTRY_PREFIX)
 
-    inserted = await run_sync(
+    inserted = run_sync(
         gcs=fake_gcs,
         scraper=scraper,
         registry=registry,
@@ -59,7 +58,7 @@ async def test_calendar_sync_seeds_registry_from_watchlist(fake_gcs) -> None:
     )
     assert inserted == 2
 
-    tasks = await registry.load("2026", "Q2")
+    tasks = registry.load("2026", "Q2")
     by_type = {t.event_type: t for t in tasks}
     assert set(by_type) == {"pre_earnings", "ects"}
 
@@ -71,8 +70,7 @@ async def test_calendar_sync_seeds_registry_from_watchlist(fake_gcs) -> None:
     assert ects_exec == expected_call + timedelta(minutes=30)
 
 
-@pytest.mark.asyncio
-async def test_dispatcher_publishes_seeded_tasks_when_due(fake_gcs) -> None:
+def test_dispatcher_publishes_seeded_tasks_when_due(fake_gcs) -> None:
     # Seed the registry via calendar_sync first
     call_time = (utcnow() + timedelta(minutes=5)).replace(microsecond=0)
     fake_gcs.put_json(
@@ -90,11 +88,11 @@ async def test_dispatcher_publishes_seeded_tasks_when_due(fake_gcs) -> None:
     )
 
     claude = MagicMock()
-    claude.complete = AsyncMock()
+    claude.complete = MagicMock()
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
     registry = TaskRegistry(fake_gcs, REGISTRY_BUCKET, REGISTRY_PREFIX)
 
-    await run_sync(
+    run_sync(
         gcs=fake_gcs,
         scraper=scraper,
         registry=registry,
@@ -105,19 +103,19 @@ async def test_dispatcher_publishes_seeded_tasks_when_due(fake_gcs) -> None:
         ects_offset=30,
     )
 
-    publisher = AsyncMock()
-    publisher.publish = AsyncMock(return_value="msg-id")
+    publisher = MagicMock()
+    publisher.publish = MagicMock(return_value="msg-id")
 
     # call_time is 5 minutes from now; pre_earnings exec is call_time-30min
     # (already past), ECTS exec is call_time+30min (~35 min in future).
     # With a 60-minute window, both should publish.
-    dispatched = await run_dispatch(
+    dispatched = run_dispatch(
         registry=registry,
         publisher=publisher,
         window_minutes=60,
     )
     assert dispatched == 2
-    assert publisher.publish.await_count == 2
+    assert publisher.publish.call_count == 2
 
     event_types = sorted(
         kw["attributes"]["event_type"]
@@ -127,15 +125,14 @@ async def test_dispatcher_publishes_seeded_tasks_when_due(fake_gcs) -> None:
 
     # Re-running dispatch should be a no-op (status now 'published')
     publisher.publish.reset_mock()
-    again = await run_dispatch(
+    again = run_dispatch(
         registry=registry, publisher=publisher, window_minutes=60
     )
     assert again == 0
-    publisher.publish.assert_not_awaited()
+    publisher.publish.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_calendar_sync_skips_events_beyond_lookahead(fake_gcs) -> None:
+def test_calendar_sync_skips_events_beyond_lookahead(fake_gcs) -> None:
     """An earnings event further in the future than lookahead_days is dropped."""
     far = utcnow() + timedelta(days=60)
     fake_gcs.put_json(
@@ -156,7 +153,7 @@ async def test_calendar_sync_skips_events_beyond_lookahead(fake_gcs) -> None:
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
     registry = TaskRegistry(fake_gcs, REGISTRY_BUCKET, REGISTRY_PREFIX)
 
-    inserted = await run_sync(
+    inserted = run_sync(
         gcs=fake_gcs,
         scraper=scraper,
         registry=registry,

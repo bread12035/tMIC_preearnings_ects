@@ -1,11 +1,11 @@
-"""Tests for event_calendar.scraper."""
+"""Tests for event_calendar.scraper (sync)."""
 
 from __future__ import annotations
 
 import sys
 import types
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -47,76 +47,71 @@ def _stub_yfinance(monkeypatch, calendar_value) -> None:
     monkeypatch.setitem(sys.modules, "yfinance", fake_mod)
 
 
-@pytest.mark.asyncio
-async def test_manual_override_used_directly(monkeypatch) -> None:
+def test_manual_override_used_directly(monkeypatch) -> None:
     """When override_call_time is set, scraper bypasses yfinance + Claude."""
     claude = MagicMock()
-    claude.complete = AsyncMock(side_effect=AssertionError("must not call"))
+    claude.complete = MagicMock(side_effect=AssertionError("must not call"))
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
 
-    event = await scraper.fetch(_entry(override="2026-04-28T21:00:00Z"))
+    event = scraper.fetch(_entry(override="2026-04-28T21:00:00Z"))
 
     assert event is not None
     assert event.source == "manual"
     assert event.earnings_call_time == datetime(2026, 4, 28, 21, 0)
-    claude.complete.assert_not_awaited()
+    claude.complete.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_yfinance_with_precise_time_used(monkeypatch) -> None:
+def test_yfinance_with_precise_time_used(monkeypatch) -> None:
     _stub_yfinance(
         monkeypatch,
         {"Earnings Date": [datetime(2026, 4, 28, 21, 0)]},
     )
     claude = MagicMock()
-    claude.complete = AsyncMock(side_effect=AssertionError("must not call"))
+    claude.complete = MagicMock(side_effect=AssertionError("must not call"))
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
 
-    event = await scraper.fetch(_entry())
+    event = scraper.fetch(_entry())
 
     assert event is not None
     assert event.source == "yfinance"
     assert event.earnings_call_time == datetime(2026, 4, 28, 21, 0)
 
 
-@pytest.mark.asyncio
-async def test_yfinance_midnight_falls_back_to_web_search(monkeypatch) -> None:
+def test_yfinance_midnight_falls_back_to_web_search(monkeypatch) -> None:
     """yfinance returns midnight (date-only): scraper must fall back to Claude."""
     _stub_yfinance(
         monkeypatch,
         {"Earnings Date": [datetime(2026, 4, 28, 0, 0)]},
     )
     claude = MagicMock()
-    claude.complete = AsyncMock(
+    claude.complete = MagicMock(
         return_value='{"earnings_call_time": "2026-04-28T21:00:00Z"}'
     )
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
 
-    event = await scraper.fetch(_entry())
+    event = scraper.fetch(_entry())
 
     assert event is not None
     assert event.source == "web_search"
     assert event.earnings_call_time == datetime(2026, 4, 28, 21, 0)
-    claude.complete.assert_awaited_once()
+    claude.complete.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_all_sources_fail_returns_none(monkeypatch) -> None:
+def test_all_sources_fail_returns_none(monkeypatch) -> None:
     _stub_yfinance(monkeypatch, RuntimeError("yfinance down"))
     claude = MagicMock()
-    claude.complete = AsyncMock(return_value="sorry, no result")
+    claude.complete = MagicMock(return_value="sorry, no result")
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
 
-    event = await scraper.fetch(_entry())
+    event = scraper.fetch(_entry())
     assert event is None
 
 
-@pytest.mark.asyncio
-async def test_web_search_extracts_json_from_prose(monkeypatch) -> None:
+def test_web_search_extracts_json_from_prose(monkeypatch) -> None:
     """Claude's web_search responses often wrap JSON in commentary."""
     _stub_yfinance(monkeypatch, RuntimeError("skip"))
     claude = MagicMock()
-    claude.complete = AsyncMock(
+    claude.complete = MagicMock(
         return_value=(
             "Based on press releases, the call is at:\n"
             '```json\n{"earnings_call_time": "2026-04-28T21:00:00Z"}\n```'
@@ -124,7 +119,7 @@ async def test_web_search_extracts_json_from_prose(monkeypatch) -> None:
     )
     scraper = EarningsCalendarScraper(claude, web_search_max_uses=5)
 
-    event = await scraper.fetch(_entry())
+    event = scraper.fetch(_entry())
     assert event is not None
     assert event.source == "web_search"
 

@@ -1,4 +1,4 @@
-"""CronJob B: every 10 minutes, dispatch tasks whose execution time is due.
+"""CronJob B: every 10 minutes, dispatch tasks whose execution time is due (sync).
 
 Reads the GCS task registry, finds pending tasks with
 ``execution_time <= now + dispatch_window``, publishes a Pub/Sub trigger,
@@ -7,19 +7,18 @@ and marks each task ``published``.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timedelta
 
 from common.config import bootstrap_env, get_settings
 from common.gcs_service import GCSService
 from common.logging import setup_logging
-from common.pubsub_publisher import AsyncPublisher
+from common.pubsub_publisher import SyncPublisher
 from event_calendar.models import ScheduledTask
 from event_calendar.task_registry import TaskRegistry, utcnow
 
 
-async def amain() -> None:
+def main() -> None:
     bootstrap_env()
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -37,7 +36,7 @@ async def amain() -> None:
     gcs = GCSService(
         settings.gcs_project_id, settings.gcs_custom_storage_endpoint
     )
-    publisher = AsyncPublisher(
+    publisher = SyncPublisher(
         settings.gcp_project_id, settings.gcp_pubsub_topic
     )
     registry = TaskRegistry(
@@ -46,7 +45,7 @@ async def amain() -> None:
         settings.event_calendar_registry_prefix,
     )
 
-    dispatched = await run_dispatch(
+    dispatched = run_dispatch(
         registry=registry,
         publisher=publisher,
         window_minutes=settings.event_calendar_dispatch_window_minutes,
@@ -54,10 +53,10 @@ async def amain() -> None:
     log.info("task_dispatcher_complete", extra={"dispatched": dispatched})
 
 
-async def run_dispatch(
+def run_dispatch(
     *,
     registry: TaskRegistry,
-    publisher: AsyncPublisher,
+    publisher: SyncPublisher,
     window_minutes: int,
     now: datetime | None = None,
 ) -> int:
@@ -67,11 +66,11 @@ async def run_dispatch(
     now = now or utcnow()
     deadline = now + timedelta(minutes=window_minutes)
 
-    quarters = await registry.list_quarter_files()
+    quarters = registry.list_quarter_files()
     dispatched = 0
 
     for fy, fq in quarters:
-        tasks = await registry.load(fy, fq)
+        tasks = registry.load(fy, fq)
         for task in tasks:
             if task.status != "pending":
                 continue
@@ -82,7 +81,7 @@ async def run_dispatch(
                 continue
 
             try:
-                await publisher.publish(
+                publisher.publish(
                     data={
                         "ticker": task.ticker,
                         "fiscal_year": task.fiscal_year,
@@ -99,7 +98,7 @@ async def run_dispatch(
                 )
                 continue
 
-            await registry.mark_published(task)
+            registry.mark_published(task)
             dispatched += 1
             log.info(
                 "task_dispatched",
@@ -114,4 +113,4 @@ async def run_dispatch(
 
 
 if __name__ == "__main__":
-    asyncio.run(amain())
+    main()

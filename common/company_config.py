@@ -47,10 +47,10 @@ class CompanyConfigLoader:
         self._bucket = bucket
         self._prefix = prefix
 
-    async def load_pre_earnings(self, ticker: str) -> PreEarningsCompanyConfig:
+    def load_pre_earnings(self, ticker: str) -> PreEarningsCompanyConfig:
         path = f"{self._prefix}/{ticker}.json"
         try:
-            raw = await self._gcs.read_json(self._bucket, path)
+            raw = self._gcs.read_json(self._bucket, path)
         except GCSObjectNotFound as e:
             raise CompanyConfigNotFoundError(
                 f"No config for {ticker} at gs://{self._bucket}/{path}"

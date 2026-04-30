@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import io
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -22,8 +22,7 @@ def _parquet_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
-@pytest.mark.asyncio
-async def test_ects_e2e_happy_path(fake_gcs) -> None:
+def test_ects_e2e_happy_path(fake_gcs) -> None:
     base = "company=AAPL/quarter=Q2/fiscal=2026/AAPL"
     fake_gcs.put_bytes(
         "bk-t",
@@ -59,7 +58,7 @@ async def test_ects_e2e_happy_path(fake_gcs) -> None:
     )
 
     claude = MagicMock()
-    claude.complete = AsyncMock(return_value="## Summary\nThe quarter was strong.")
+    claude.complete = MagicMock(return_value="## Summary\nThe quarter was strong.")
 
     worker = ECTSWorker(
         processor=processor,
@@ -69,7 +68,7 @@ async def test_ects_e2e_happy_path(fake_gcs) -> None:
         output_prefix="digwork/tmic/ects_summary",
     )
 
-    ok = await worker.handle(
+    ok = worker.handle(
         {"ticker": "AAPL", "fiscal_year": "2026", "fiscal_quarter": "Q2"},
         {"message_id": "m-int-2"},
     )
@@ -84,8 +83,7 @@ async def test_ects_e2e_happy_path(fake_gcs) -> None:
     assert "strong" in body
 
 
-@pytest.mark.asyncio
-async def test_ects_e2e_missing_data_acks_without_output(fake_gcs) -> None:
+def test_ects_e2e_missing_data_acks_without_output(fake_gcs) -> None:
     # Only seed transcript + config; financial and segment missing
     base = "company=AAPL/quarter=Q2/fiscal=2026/AAPL"
     fake_gcs.put_bytes(
@@ -109,7 +107,7 @@ async def test_ects_e2e_missing_data_acks_without_output(fake_gcs) -> None:
         prefix_config="configs/ects",
     )
     claude = MagicMock()
-    claude.complete = AsyncMock()
+    claude.complete = MagicMock()
     worker = ECTSWorker(
         processor=processor,
         claude=claude,
@@ -118,26 +116,25 @@ async def test_ects_e2e_missing_data_acks_without_output(fake_gcs) -> None:
         output_prefix="digwork/tmic/ects_summary",
     )
 
-    ok = await worker.handle(
+    ok = worker.handle(
         {"ticker": "AAPL", "fiscal_year": "2026", "fiscal_quarter": "Q2"},
         {},
     )
     assert ok is True  # ack despite missing data
-    claude.complete.assert_not_awaited()
+    claude.complete.assert_not_called()
     # No output written
     assert not any(k[0] == "ects-out" for k in fake_gcs.objects.keys())
 
 
-@pytest.mark.asyncio
-async def test_ects_e2e_web_search_mode(fake_gcs) -> None:
+def test_ects_e2e_web_search_mode(fake_gcs) -> None:
     """When web_search_flag=True, skip GCS data pulls; just call Claude with the
     Stock Titan + Motley Fool prompt and write the summary."""
     # Processor must NOT be invoked.
     processor = MagicMock()
-    processor.load_and_process = AsyncMock(side_effect=AssertionError("called"))
+    processor.load_and_process = MagicMock(side_effect=AssertionError("called"))
 
     claude = MagicMock()
-    claude.complete = AsyncMock(return_value="## Summary\nGreat quarter from web.")
+    claude.complete = MagicMock(return_value="## Summary\nGreat quarter from web.")
 
     worker = ECTSWorker(
         processor=processor,
@@ -151,15 +148,15 @@ async def test_ects_e2e_web_search_mode(fake_gcs) -> None:
         motley_fool_url="https://www.fool.com/earnings-call-transcripts",
     )
 
-    ok = await worker.handle(
+    ok = worker.handle(
         {"ticker": "AAPL", "fiscal_year": "2026", "fiscal_quarter": "Q2"}, {}
     )
     assert ok is True
 
-    processor.load_and_process.assert_not_awaited()
+    processor.load_and_process.assert_not_called()
     # Claude was called with web_search tool wired in
-    assert claude.complete.await_count == 1
-    call_kwargs = claude.complete.await_args.kwargs
+    assert claude.complete.call_count == 1
+    call_kwargs = claude.complete.call_args.kwargs
     assert "tools" in call_kwargs and call_kwargs["tools"]
     assert call_kwargs["tools"][0]["name"] == "web_search"
 

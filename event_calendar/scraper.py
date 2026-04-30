@@ -1,4 +1,4 @@
-"""Resolve earnings call times for watchlist entries.
+"""Resolve earnings call times for watchlist entries (sync).
 
 Priority chain:
   1. override_call_time set in watchlist  -> use directly (source="manual")
@@ -28,7 +28,7 @@ class EarningsCalendarScraper:
         self._claude = claude_client
         self._web_search_max_uses = web_search_max_uses
 
-    async def fetch(self, entry: WatchlistEntry) -> EarningsEvent | None:
+    def fetch(self, entry: WatchlistEntry) -> EarningsEvent | None:
         # 1. manual override
         if entry.override_call_time:
             dt = _parse_iso_utc(entry.override_call_time)
@@ -45,8 +45,8 @@ class EarningsCalendarScraper:
         if event and self._has_precise_time(event):
             return event
 
-        # 3. web_search fallback
-        event = await self._from_web_search(entry)
+        # 3. web_search fallback (sync)
+        event = self._from_web_search(entry)
         if event:
             return event
 
@@ -97,9 +97,7 @@ class EarningsCalendarScraper:
             )
             return None
 
-    async def _from_web_search(
-        self, entry: WatchlistEntry
-    ) -> EarningsEvent | None:
+    def _from_web_search(self, entry: WatchlistEntry) -> EarningsEvent | None:
         system = (
             "You are a financial data assistant. Search for the official "
             "earnings call date and time."
@@ -112,7 +110,7 @@ class EarningsCalendarScraper:
             f'{{"earnings_call_time": "<ISO8601 UTC>"}}'
         )
         try:
-            result = await self._claude.complete(
+            result = self._claude.complete(
                 system=system,
                 user_prompt=user,
                 tools=[web_search_tool(self._web_search_max_uses)],

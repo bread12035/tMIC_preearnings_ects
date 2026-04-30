@@ -1,4 +1,4 @@
-"""Tests for ects.data_processor.ECTSDataProcessor."""
+"""Tests for ects.data_processor.ECTSDataProcessor (sync)."""
 
 from __future__ import annotations
 
@@ -60,12 +60,11 @@ def _seed_all(fake_gcs) -> None:
     )
 
 
-@pytest.mark.asyncio
-async def test_load_and_process_happy_path(fake_gcs) -> None:
+def test_load_and_process_happy_path(fake_gcs) -> None:
     _seed_all(fake_gcs)
     processor = _make_processor(fake_gcs)
 
-    out = await processor.load_and_process(_msg())
+    out = processor.load_and_process(_msg())
     assert out.ticker == "AAPL"
     assert "Welcome" in out.transcript
     assert list(out.financial.columns) == ["metric", "value"]
@@ -73,8 +72,7 @@ async def test_load_and_process_happy_path(fake_gcs) -> None:
     assert out.config == {"sector": "tech"}
 
 
-@pytest.mark.asyncio
-async def test_missing_data_raises_with_sources(fake_gcs) -> None:
+def test_missing_data_raises_with_sources(fake_gcs) -> None:
     # Seed only 2 of 4
     _seed_all(fake_gcs)
     del fake_gcs.objects[
@@ -86,13 +84,12 @@ async def test_missing_data_raises_with_sources(fake_gcs) -> None:
     processor = _make_processor(fake_gcs)
 
     with pytest.raises(MissingDataError) as ei:
-        await processor.load_and_process(_msg())
+        processor.load_and_process(_msg())
     assert ei.value.ticker == "AAPL"
     assert set(ei.value.missing_sources) == {"financial", "segment"}
 
 
-@pytest.mark.asyncio
-async def test_data_parse_error_on_bad_parquet(fake_gcs) -> None:
+def test_data_parse_error_on_bad_parquet(fake_gcs) -> None:
     _seed_all(fake_gcs)
     fake_gcs.put_bytes(
         "bk-f",
@@ -102,11 +99,10 @@ async def test_data_parse_error_on_bad_parquet(fake_gcs) -> None:
     processor = _make_processor(fake_gcs)
 
     with pytest.raises(DataParseError):
-        await processor.load_and_process(_msg())
+        processor.load_and_process(_msg())
 
 
-@pytest.mark.asyncio
-async def test_data_parse_error_on_bad_config_json(fake_gcs) -> None:
+def test_data_parse_error_on_bad_config_json(fake_gcs) -> None:
     _seed_all(fake_gcs)
     fake_gcs.put_text(
         "bk-c",
@@ -116,4 +112,4 @@ async def test_data_parse_error_on_bad_config_json(fake_gcs) -> None:
     processor = _make_processor(fake_gcs)
 
     with pytest.raises(DataParseError):
-        await processor.load_and_process(_msg())
+        processor.load_and_process(_msg())
