@@ -1,8 +1,8 @@
-"""Tests for ects.worker.ECTSWorker. Verifies the exception -> ack/nack matrix."""
+"""Tests for ects.worker.ECTSWorker (sync). Verifies the exception -> ack/nack matrix."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -35,9 +35,9 @@ def _processed() -> ECTSProcessedData:
 
 def _make_worker(fake_gcs):
     processor = MagicMock()
-    processor.load_and_process = AsyncMock(return_value=_processed())
+    processor.load_and_process = MagicMock(return_value=_processed())
     claude = MagicMock()
-    claude.complete = AsyncMock(return_value="## Summary")
+    claude.complete = MagicMock(return_value="## Summary")
 
     worker = ECTSWorker(
         processor=processor,
@@ -49,59 +49,53 @@ def _make_worker(fake_gcs):
     return worker, processor, claude
 
 
-@pytest.mark.asyncio
-async def test_happy_path_writes_and_acks(fake_gcs) -> None:
+def test_happy_path_writes_and_acks(fake_gcs) -> None:
     worker, _, claude = _make_worker(fake_gcs)
-    ok = await worker.handle(_payload(), {"message_id": "m1"})
+    ok = worker.handle(_payload(), {"message_id": "m1"})
     assert ok is True
     expected_path = (
         "digwork/tmic/ects_summary/company=AAPL/quarter=Q2/fiscal=2026/"
         "AAPL_FY_Q2_2026.md"
     )
     assert ("ects-out", expected_path) in fake_gcs.objects
-    claude.complete.assert_awaited_once()
+    claude.complete.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_malformed_payload_acks(fake_gcs) -> None:
+def test_malformed_payload_acks(fake_gcs) -> None:
     worker, processor, _ = _make_worker(fake_gcs)
-    ok = await worker.handle({"missing": "fields"}, {})
+    ok = worker.handle({"missing": "fields"}, {})
     assert ok is True
-    processor.load_and_process.assert_not_awaited()
+    processor.load_and_process.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_missing_data_acks(fake_gcs) -> None:
+def test_missing_data_acks(fake_gcs) -> None:
     worker, processor, _ = _make_worker(fake_gcs)
     processor.load_and_process.side_effect = MissingDataError("AAPL", ["financial"])
-    ok = await worker.handle(_payload(), {})
+    ok = worker.handle(_payload(), {})
     assert ok is True
 
 
-@pytest.mark.asyncio
-async def test_data_parse_error_acks(fake_gcs) -> None:
+def test_data_parse_error_acks(fake_gcs) -> None:
     worker, processor, _ = _make_worker(fake_gcs)
     processor.load_and_process.side_effect = DataParseError("bad parquet")
-    ok = await worker.handle(_payload(), {})
+    ok = worker.handle(_payload(), {})
     assert ok is True
 
 
-@pytest.mark.asyncio
-async def test_claude_exhausted_acks(fake_gcs) -> None:
+def test_claude_exhausted_acks(fake_gcs) -> None:
     worker, _, claude = _make_worker(fake_gcs)
     claude.complete.side_effect = ClaudeAPIRetryExhaustedError("down")
-    ok = await worker.handle(_payload(), {})
+    ok = worker.handle(_payload(), {})
     assert ok is True
     # No output written
     assert fake_gcs.objects == {}
 
 
-@pytest.mark.asyncio
-async def test_gcs_write_failure_nacks(fake_gcs) -> None:
+def test_gcs_write_failure_nacks(fake_gcs) -> None:
     worker, _, _ = _make_worker(fake_gcs)
     fake_gcs.fail_write(
         "ects-out",
         "digwork/tmic/ects_summary/company=AAPL/quarter=Q2/fiscal=2026/AAPL_FY_Q2_2026.md",
     )
-    ok = await worker.handle(_payload(), {})
+    ok = worker.handle(_payload(), {})
     assert ok is False  # nack -> Pub/Sub redelivers

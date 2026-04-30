@@ -1,4 +1,4 @@
-"""Tests for common.company_config."""
+"""Tests for common.company_config (sync)."""
 
 from __future__ import annotations
 
@@ -31,35 +31,31 @@ def _valid_config() -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_load_pre_earnings_valid(fake_gcs) -> None:
+def test_load_pre_earnings_valid(fake_gcs) -> None:
     fake_gcs.put_json("cfg-bucket", "configs/pre_earnings/AAPL.json", _valid_config())
     loader = CompanyConfigLoader(fake_gcs, "cfg-bucket", "configs/pre_earnings")
 
-    out = await loader.load_pre_earnings("AAPL")
+    out = loader.load_pre_earnings("AAPL")
     assert out.ticker == "AAPL"
     assert out.polling.interval_minutes == 5
     assert out.summary_template.sections == ["Headline numbers", "Margin"]
 
 
-@pytest.mark.asyncio
-async def test_load_pre_earnings_missing(fake_gcs) -> None:
+def test_load_pre_earnings_missing(fake_gcs) -> None:
     loader = CompanyConfigLoader(fake_gcs, "cfg-bucket", "configs/pre_earnings")
     with pytest.raises(CompanyConfigNotFoundError):
-        await loader.load_pre_earnings("MISSING")
+        loader.load_pre_earnings("MISSING")
 
 
-@pytest.mark.asyncio
-async def test_load_pre_earnings_invalid(fake_gcs) -> None:
+def test_load_pre_earnings_invalid(fake_gcs) -> None:
     # Missing the required `company_name` => invalid.
     fake_gcs.put_json("cfg-bucket", "configs/pre_earnings/BAD.json", {"ticker": "BAD"})
     loader = CompanyConfigLoader(fake_gcs, "cfg-bucket", "configs/pre_earnings")
     with pytest.raises(CompanyConfigInvalidError):
-        await loader.load_pre_earnings("BAD")
+        loader.load_pre_earnings("BAD")
 
 
-@pytest.mark.asyncio
-async def test_load_pre_earnings_minimal_config_accepted(fake_gcs) -> None:
+def test_load_pre_earnings_minimal_config_accepted(fake_gcs) -> None:
     """Just ticker + company_name is enough; the prompt builder falls back to
     Stock Titan with default topics/sections."""
     fake_gcs.put_json(
@@ -68,7 +64,7 @@ async def test_load_pre_earnings_minimal_config_accepted(fake_gcs) -> None:
         {"ticker": "MIN", "company_name": "Minimal Co."},
     )
     loader = CompanyConfigLoader(fake_gcs, "cfg-bucket", "configs/pre_earnings")
-    out = await loader.load_pre_earnings("MIN")
+    out = loader.load_pre_earnings("MIN")
     assert out.ticker == "MIN"
     assert out.press_release_urls == []
     assert out.financial_topics == []

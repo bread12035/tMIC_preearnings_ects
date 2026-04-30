@@ -1,21 +1,21 @@
-"""Entry point for the ECTS deployment."""
+"""Entry point for the ECTS deployment (sync)."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import signal
+import threading
 
 from common.claude_client import ClaudeClient
 from common.config import bootstrap_env, get_settings
 from common.gcs_service import GCSService
 from common.logging import setup_logging
-from common.pubsub import AsyncSubscriber
+from common.sync_subscriber import SyncSubscriber
 from ects.data_processor import ECTSDataProcessor
 from ects.worker import ECTSWorker
 
 
-async def amain() -> None:
+def main() -> None:
     bootstrap_env()  # MUST be first
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -28,9 +28,7 @@ async def amain() -> None:
 
     log.info("startup", extra={"safe_settings": settings.safe_dict()})
 
-    gcs = GCSService(
-        settings.gcs_project_id, settings.gcs_custom_storage_endpoint
-    )
+    gcs = GCSService(settings.gcs_project_id, settings.gcs_custom_storage_endpoint)
     claude = ClaudeClient(
         api_key=settings.anthropic_api_key,
         model=settings.anthropic_model,
@@ -70,37 +68,40 @@ async def amain() -> None:
         prompt_web_search_template_path=settings.prompt_ects_web_search_template_path,
     )
 
-    subscriber = AsyncSubscriber(
+    subscriber = SyncSubscriber(
         project_id=settings.gcp_project_id,
         subscription=settings.gcp_pubsub_subscription,
         handler=worker.handle,
-        max_inflight=settings.gcp_pubsub_max_inflight,
+        max_messages=settings.gcp_pubsub_max_inflight,
+        # ECTS is one-shot; default 3600s lease is plenty
     )
 
-    # Graceful shutdown
-    stop_event = asyncio.Event()
+    shutdown_event = threading.Event()
 
-    def _signal_handler() -> None:
-        stop_event.set()
+    def _on_signal(signum, frame):
+        log.info("shutdown_signal_received", extra={"signal": signum})
+        shutdown_event.set()
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(sig, _signal_handler)
-        except NotImplementedError:
-            pass
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
 
-    _touch("/tmp/alive")
-
-    await subscriber.start()
     _touch("/tmp/ready")
+
+    subscriber.start()
     log.info("subscriber_ready")
 
-    try:
-        await stop_event.wait()
-    finally:
-        await subscriber.shutdown()
-        log.info("shutdown_complete")
+    while not shutdown_event.is_set():
+        if shutdown_event.wait(timeout=1.0):
+            break
+        if (
+            subscriber._streaming_future is not None
+            and subscriber._streaming_future.done()
+        ):
+            log.warning("streaming_future_done_unexpectedly")
+            break
+
+    subscriber.shutdown()
+    log.info("shutdown_complete")
 
 
 def _touch(path: str) -> None:
@@ -112,4 +113,4 @@ def _touch(path: str) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(amain())
+    main()

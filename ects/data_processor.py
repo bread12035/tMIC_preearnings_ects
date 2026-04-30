@@ -3,7 +3,7 @@ ects/data_processor.py
 
 USER OWNS THE TRANSFORM LOGIC. This file defines:
   - The interface (load_and_process)
-  - The orchestration (parallel GCS pulls, missing-data detection)
+  - The orchestration (sequential GCS reads, missing-data detection)
   - The error contract (MissingDataError, DataParseError)
 
 The TODO sections are where you implement parquet -> domain DataFrame.
@@ -11,7 +11,6 @@ The TODO sections are where you implement parquet -> domain DataFrame.
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import logging
@@ -31,13 +30,15 @@ log = logging.getLogger(__name__)
 
 class ECTSDataProcessor:
     """
-    Pulls 4 sources from GCS in parallel for ONE company:
-      - transcript (assumed parquet or text; you decide)
+    Pulls 4 sources from GCS sequentially for ONE company:
+      - transcript (parquet)
       - financial (parquet)
       - segment (parquet)
       - config (json)
 
     All 4 are required. Any missing -> MissingDataError (caller acks).
+    Sequential GCS reads — total latency is negligible vs Claude call;
+    no parallelism needed (see SDD §6.2 note on future ThreadPoolExecutor).
     """
 
     SOURCES = ("transcript", "financial", "segment", "config")
@@ -62,14 +63,33 @@ class ECTSDataProcessor:
             "config": (bucket_config, prefix_config),
         }
 
-    async def load_and_process(self, msg: ECTSMessage) -> ECTSProcessedData:
-        # Step 1: parallel pull
-        raw = await self._pull_all(msg)
+    def load_and_process(self, msg: ECTSMessage) -> ECTSProcessedData:
+        # Step 1: sequential pull
+        raw: dict[str, bytes] = {}
+        missing: list[str] = []
+        for source in self.SOURCES:
+            bucket, prefix = self._paths[source]
+            blob_path = self._build_blob_path(prefix, source, msg)
+            try:
+                raw[source] = self._gcs.read_bytes(bucket, blob_path)
+            except GCSObjectNotFound:
+                log.warning(
+                    "ects_source_missing",
+                    extra={
+                        "source": source,
+                        "bucket": bucket,
+                        "blob_path": blob_path,
+                    },
+                )
+                missing.append(source)
+
+        if missing:
+            raise MissingDataError(msg.ticker, missing)
 
         # Step 2: parse each
-        transcript = await self._parse_transcript(raw["transcript"])
-        financial = await self._parse_financial(raw["financial"])
-        segment = await self._parse_segment(raw["segment"])
+        transcript = self._parse_transcript(raw["transcript"])
+        financial = self._parse_financial(raw["financial"])
+        segment = self._parse_segment(raw["segment"])
         config = self._parse_config(raw["config"])
 
         # Step 3: USER TRANSFORM HOOK
@@ -87,36 +107,6 @@ class ECTSDataProcessor:
             config=config,
         )
 
-    # --- Pull stage ---
-    async def _pull_all(self, msg: ECTSMessage) -> dict[str, bytes]:
-        async def pull_one(source: str) -> tuple[str, bytes | None]:
-            bucket, prefix = self._paths[source]
-            blob_path = self._build_blob_path(prefix, source, msg)
-            try:
-                data = await self._gcs.read_bytes(bucket, blob_path)
-                return source, data
-            except GCSObjectNotFound:
-                log.warning(
-                    "ects_source_missing",
-                    extra={
-                        "source": source,
-                        "bucket": bucket,
-                        "blob_path": blob_path,
-                    },
-                )
-                return source, None
-
-        results = await asyncio.gather(
-            *[pull_one(s) for s in self.SOURCES]
-        )
-        results_dict = dict(results)
-
-        missing = [s for s, v in results_dict.items() if v is None]
-        if missing:
-            raise MissingDataError(msg.ticker, missing)
-
-        return results_dict  # all non-None
-
     @staticmethod
     def _build_blob_path(prefix: str, source: str, msg: ECTSMessage) -> str:
         # TODO(user): adjust to actual Bloomberg path convention
@@ -128,34 +118,30 @@ class ECTSDataProcessor:
         )
 
     # --- Parse stage ---
-    async def _parse_transcript(self, data: bytes) -> str:
+    def _parse_transcript(self, data: bytes) -> str:
         # TODO(user): if transcript is parquet, extract text column;
         #             if it's plain text, just decode.
         try:
-            return await asyncio.to_thread(self._parse_transcript_sync, data)
+            df = pd.read_parquet(io.BytesIO(data))
+            if "text" not in df.columns:
+                raise DataParseError(
+                    f"transcript parquet missing 'text' column; cols={list(df.columns)}"
+                )
+            return "\n".join(df["text"].astype(str).tolist())
         except DataParseError:
             raise
         except Exception as e:
             raise DataParseError(f"transcript parse failed: {e}") from e
 
-    def _parse_transcript_sync(self, data: bytes) -> str:
-        # Placeholder: assume parquet with a 'text' column
-        df = pd.read_parquet(io.BytesIO(data))
-        if "text" not in df.columns:
-            raise DataParseError(
-                f"transcript parquet missing 'text' column; cols={list(df.columns)}"
-            )
-        return "\n".join(df["text"].astype(str).tolist())
-
-    async def _parse_financial(self, data: bytes) -> pd.DataFrame:
+    def _parse_financial(self, data: bytes) -> pd.DataFrame:
         try:
-            return await asyncio.to_thread(pd.read_parquet, io.BytesIO(data))
+            return pd.read_parquet(io.BytesIO(data))
         except Exception as e:
             raise DataParseError(f"financial parse failed: {e}") from e
 
-    async def _parse_segment(self, data: bytes) -> pd.DataFrame:
+    def _parse_segment(self, data: bytes) -> pd.DataFrame:
         try:
-            return await asyncio.to_thread(pd.read_parquet, io.BytesIO(data))
+            return pd.read_parquet(io.BytesIO(data))
         except Exception as e:
             raise DataParseError(f"segment parse failed: {e}") from e
 

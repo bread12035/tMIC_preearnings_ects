@@ -1,4 +1,4 @@
-"""Pub/Sub message handler for ECTS workflow.
+"""Pub/Sub message handler for ECTS workflow (sync).
 
 Two execution paths, selected by ``web_search_flag``:
 
@@ -63,9 +63,11 @@ class ECTSWorker:
         self._prompt_web_search_user_path = prompt_web_search_user_path
         self._prompt_web_search_template_path = prompt_web_search_template_path
 
-    async def handle(self, payload: dict, attrs: dict) -> bool:
+    def handle(self, payload: dict, attrs: dict) -> bool:
+        # Reset ContextVars at handler entry — Pub/Sub SDK reuses threads
         ctx_workflow.set("ects")
         ctx_message_id.set(attrs.get("message_id", "?"))
+        ctx_ticker.set("?")
 
         try:
             msg = ECTSMessage(**payload)
@@ -76,12 +78,12 @@ class ECTSWorker:
         ctx_ticker.set(msg.ticker)
 
         if self._web_search_flag:
-            return await self._handle_web_search(msg)
-        return await self._handle_data_mode(msg)
+            return self._handle_web_search(msg)
+        return self._handle_data_mode(msg)
 
-    async def _handle_data_mode(self, msg: ECTSMessage) -> bool:
+    def _handle_data_mode(self, msg: ECTSMessage) -> bool:
         try:
-            processed = await self._processor.load_and_process(msg)
+            processed = self._processor.load_and_process(msg)
         except MissingDataError as e:
             log.error(
                 "ects_missing_data",
@@ -98,14 +100,14 @@ class ECTSWorker:
                 system_template_path=self._prompt_system_path,
                 user_template_path=self._prompt_user_path,
             )
-            summary = await self._claude.complete(system=system, user_prompt=user)
+            summary = self._claude.complete(system=system, user_prompt=user)
         except ClaudeAPIRetryExhaustedError as e:
             log.error("ects_claude_exhausted", extra={"error": str(e)})
             return True  # ack: service down, don't redeliver
 
-        return await self._publish(msg, summary)
+        return self._publish(msg, summary)
 
-    async def _handle_web_search(self, msg: ECTSMessage) -> bool:
+    def _handle_web_search(self, msg: ECTSMessage) -> bool:
         try:
             system, user = build_ects_web_search_prompt(
                 msg,
@@ -116,7 +118,7 @@ class ECTSWorker:
                 user_template_path=self._prompt_web_search_user_path,
                 template_path=self._prompt_web_search_template_path,
             )
-            summary = await self._claude.complete(
+            summary = self._claude.complete(
                 system=system,
                 user_prompt=user,
                 tools=[web_search_tool(self._web_search_max_uses)],
@@ -129,11 +131,11 @@ class ECTSWorker:
             log.warning("ects_sources_not_available")
             return True  # ack: nothing useful published yet
 
-        return await self._publish(msg, summary)
+        return self._publish(msg, summary)
 
-    async def _publish(self, msg: ECTSMessage, summary: str) -> bool:
+    def _publish(self, msg: ECTSMessage, summary: str) -> bool:
         try:
-            await self._write_output(msg, summary)
+            self._write_output(msg, summary)
         except GCSWriteError as e:
             log.error("ects_write_failed", extra={"error": str(e)})
             return False  # nack: transient, retry
@@ -141,10 +143,10 @@ class ECTSWorker:
         log.info("ects_summary_complete")
         return True
 
-    async def _write_output(self, msg: ECTSMessage, content: str) -> None:
+    def _write_output(self, msg: ECTSMessage, content: str) -> None:
         path = (
             f"{self._output_prefix}/company={msg.ticker}/"
             f"quarter={msg.fiscal_quarter}/fiscal={msg.fiscal_year}/"
             f"{msg.ticker}_FY_{msg.fiscal_quarter}_{msg.fiscal_year}.md"
         )
-        await self._gcs.write_text(self._output_bucket, path, content)
+        self._gcs.write_text(self._output_bucket, path, content)

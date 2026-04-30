@@ -1,15 +1,15 @@
-"""Async Claude wrapper with exponential-backoff retry."""
+"""Sync Claude wrapper with exponential-backoff retry."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import time
 
 from anthropic import (
     APIConnectionError,
     APIStatusError,
     APITimeoutError,
-    AsyncAnthropic,
+    Anthropic,
     RateLimitError,
 )
 
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 class ClaudeClient:
     """
-    Async Claude wrapper with exponential backoff retry.
+    Sync Claude wrapper with exponential backoff retry.
     All public methods raise ClaudeAPIRetryExhaustedError after max_retries.
     """
 
@@ -39,7 +39,7 @@ class ClaudeClient:
         max_retries: int = 5,
         retry_base_delay: int = 2,
     ):
-        self._client = AsyncAnthropic(
+        self._client = Anthropic(
             api_key=api_key,
             base_url=base_url,
             timeout=timeout_seconds,
@@ -49,7 +49,7 @@ class ClaudeClient:
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
 
-    async def complete(
+    def complete(
         self,
         system: str,
         user_prompt: str,
@@ -59,14 +59,6 @@ class ClaudeClient:
         Returns concatenated text from response.
         For pre-earnings, pass tools=[web_search_tool_definition].
         """
-        return await self._call_with_retry(system, user_prompt, tools)
-
-    async def _call_with_retry(
-        self,
-        system: str,
-        user_prompt: str,
-        tools: list[dict] | None,
-    ) -> str:
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
@@ -79,7 +71,7 @@ class ClaudeClient:
                 if tools:
                     kwargs["tools"] = tools
 
-                resp = await self._client.messages.create(**kwargs)
+                resp = self._client.messages.create(**kwargs)
                 # Extract text blocks (skip tool_use blocks)
                 texts = [
                     block.text
@@ -112,10 +104,13 @@ class ClaudeClient:
                     exc_info=True,
                 )
 
-            # Exponential backoff: 2, 4, 8, 16, 32 seconds (with default base=2)
             if attempt < self._max_retries - 1:
                 delay = self._retry_base_delay * (2 ** attempt)
-                await asyncio.sleep(delay)
+                log.warning(
+                    "claude_retry",
+                    extra={"attempt": attempt + 1, "delay": delay},
+                )
+                time.sleep(delay)
 
         raise ClaudeAPIRetryExhaustedError(
             f"Claude API failed after {self._max_retries} attempts: {last_exc}"

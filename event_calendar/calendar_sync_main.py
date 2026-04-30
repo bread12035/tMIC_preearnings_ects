@@ -1,4 +1,4 @@
-"""CronJob A: weekly calendar sync.
+"""CronJob A: weekly calendar sync (sync).
 
 Reads the GCS watchlist, resolves each ticker's earnings call time, and
 upserts (does not overwrite) the per-quarter task registry.
@@ -6,7 +6,6 @@ upserts (does not overwrite) the per-quarter task registry.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -19,7 +18,7 @@ from event_calendar.scraper import EarningsCalendarScraper
 from event_calendar.task_registry import TaskRegistry, utcnow
 
 
-async def amain() -> None:
+def main() -> None:
     bootstrap_env()
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -57,7 +56,7 @@ async def amain() -> None:
         settings.event_calendar_registry_prefix,
     )
 
-    inserted = await run_sync(
+    inserted = run_sync(
         gcs=gcs,
         scraper=scraper,
         registry=registry,
@@ -70,7 +69,7 @@ async def amain() -> None:
     log.info("calendar_sync_complete", extra={"new_tasks": inserted})
 
 
-async def run_sync(
+def run_sync(
     *,
     gcs,
     scraper: EarningsCalendarScraper,
@@ -84,14 +83,14 @@ async def run_sync(
     """Pure orchestration — extracted for unit testing."""
     log = logging.getLogger(__name__)
 
-    raw = await gcs.read_json(watchlist_bucket, watchlist_blob)
+    raw = gcs.read_json(watchlist_bucket, watchlist_blob)
     entries = [WatchlistEntry(**e) for e in raw]
 
     horizon = utcnow() + timedelta(days=lookahead_days)
 
     new_tasks: list[ScheduledTask] = []
     for entry in entries:
-        event = await scraper.fetch(entry)
+        event = scraper.fetch(entry)
         if event is None:
             continue
         if event.earnings_call_time > horizon:
@@ -142,8 +141,8 @@ async def run_sync(
             )
         )
 
-    return await registry.upsert(new_tasks)
+    return registry.upsert(new_tasks)
 
 
 if __name__ == "__main__":
-    asyncio.run(amain())
+    main()

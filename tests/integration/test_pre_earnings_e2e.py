@@ -1,14 +1,15 @@
 """End-to-end-ish test for pre-earnings (without a real Pub/Sub emulator).
 
-We invoke worker.handle with a synthetic payload, wait for the background
-polling task to complete, and assert the GCS write happened. This exercises:
-  worker -> monitor -> claude (mocked) -> gcs (fake)
+We invoke worker.handle with a synthetic payload and assert the GCS write
+happened. In the sync design the handler blocks until polling is complete,
+so we just call it directly and check the result.
+
+This exercises: worker -> monitor -> claude (mocked) -> gcs (fake)
 """
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,8 +18,7 @@ from pre_earnings.monitor import PreEarningsMonitor
 from pre_earnings.worker import PreEarningsWorker
 
 
-@pytest.mark.asyncio
-async def test_pre_earnings_e2e(fake_gcs) -> None:
+def test_pre_earnings_e2e(fake_gcs) -> None:
     fake_gcs.put_json(
         "cfg-bucket",
         "configs/pre_earnings/AAPL.json",
@@ -40,7 +40,7 @@ async def test_pre_earnings_e2e(fake_gcs) -> None:
 
     claude = MagicMock()
     # Simulate not-available on the first call, then a successful summary
-    claude.complete = AsyncMock(
+    claude.complete = MagicMock(
         side_effect=["PRESS_RELEASE_NOT_AVAILABLE", "## Summary\nGreat quarter."]
     )
 
@@ -64,11 +64,10 @@ async def test_pre_earnings_e2e(fake_gcs) -> None:
         "event_time_iso": "2020-01-01T00:00:00+00:00",  # past => no wait
     }
 
-    ok = await worker.handle(payload, {"message_id": "m-int-1"})
+    with patch("pre_earnings.monitor.time.sleep"):
+        ok = worker.handle(payload, {"message_id": "m-int-1"})
+
     assert ok is True
-    # Drain the background polling task. interval_minutes=0 => sleeps are 0s.
-    if worker._background_tasks:
-        await asyncio.wait(list(worker._background_tasks), timeout=5.0)
 
     expected_path = (
         "digwork/tmic/pre_earnings_summary/company=AAPL/quarter=Q2/"

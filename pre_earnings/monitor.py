@@ -1,13 +1,14 @@
-"""Pre-earnings polling loop.
+"""Pre-earnings polling loop (sync).
 
-Runs entirely in memory; if the Pod restarts, in-flight polls are lost
-(see SDD section 11 for the future Firestore-checkpoint plan).
+Blocks the calling thread for the full polling window. The Pub/Sub SDK's
+lease management automatically extends the ack deadline while this runs
+(controlled by FlowControl.max_lease_duration — see SDD §3.2).
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from common.claude_client import ClaudeClient, web_search_tool
@@ -51,9 +52,13 @@ class PreEarningsMonitor:
         self._prompt_system_path = prompt_system_path
         self._prompt_user_path = prompt_user_path
 
-    async def run(self, msg: PreEarningsMessage) -> None:
+    def run(self, msg: PreEarningsMessage) -> None:
+        """
+        Blocking polling loop. Returns when press release is found,
+        or after max_attempts. Caller acks in both cases.
+        """
         try:
-            cfg = await self._config_loader.load_pre_earnings(msg.ticker)
+            cfg = self._config_loader.load_pre_earnings(msg.ticker)
         except CompanyConfigNotFoundError as e:
             log.error("config_not_found", extra={"error": str(e)})
             return
@@ -61,18 +66,26 @@ class PreEarningsMonitor:
             log.error("config_invalid", extra={"error": str(e)})
             return
 
-        await self._wait_until_start(msg, cfg)
+        self._wait_until_start(msg, cfg)
 
         for attempt in range(cfg.polling.max_attempts):
             log.info(
                 "polling_attempt",
                 extra={"attempt": attempt + 1, "max": cfg.polling.max_attempts},
             )
+            # Touch /tmp/alive for K8s liveness probe
             try:
-                summary = await self._try_fetch_and_summarize(msg, cfg)
-                await self._write_output(msg, summary)
+                open("/tmp/alive", "w").close()
+            except OSError:
+                pass
+
+            try:
+                summary = self._try_fetch_and_summarize(msg, cfg)
+                output_path = self._build_output_path(msg)
+                self._gcs.write_text(self._output_bucket, output_path, summary)
                 log.info(
-                    "press_release_captured", extra={"attempt": attempt + 1}
+                    "press_release_captured",
+                    extra={"attempt": attempt + 1, "path": output_path},
                 )
                 return
             except PressReleaseNotFoundError:
@@ -82,18 +95,21 @@ class PreEarningsMonitor:
                 log.warning("claude_down_continuing", extra={"error": str(e)})
 
             if attempt < cfg.polling.max_attempts - 1:
-                await asyncio.sleep(cfg.polling.interval_minutes * 60)
+                time.sleep(cfg.polling.interval_minutes * 60)
 
         log.warning(
             "polling_exhausted", extra={"attempts": cfg.polling.max_attempts}
         )
+        self._write_audit(msg, "polling_exhausted")
 
-    async def _wait_until_start(
+    def _wait_until_start(
         self, msg: PreEarningsMessage, cfg: PreEarningsCompanyConfig
     ) -> None:
-        """
-        If event_time is far in the future, sleep until
-        (event_time - start_offset_minutes). Bounded to non-negative.
+        """Sleep until polling start time.
+
+        The Pub/Sub SDK's lease management automatically extends the ack
+        deadline during this sleep, as long as FlowControl.max_lease_duration
+        is set high enough (see SDD §3.2).
         """
         try:
             event_time = datetime.fromisoformat(
@@ -112,9 +128,9 @@ class PreEarningsMonitor:
         delay = start_at - datetime.now(timezone.utc).timestamp()
         if delay > 0:
             log.info("waiting_until_start", extra={"sleep_seconds": int(delay)})
-            await asyncio.sleep(delay)
+            time.sleep(delay)
 
-    async def _try_fetch_and_summarize(
+    def _try_fetch_and_summarize(
         self, msg: PreEarningsMessage, cfg: PreEarningsCompanyConfig
     ) -> str:
         system, user = build_pre_earnings_prompt(
@@ -124,7 +140,7 @@ class PreEarningsMonitor:
             system_template_path=self._prompt_system_path,
             user_template_path=self._prompt_user_path,
         )
-        result = await self._claude.complete(
+        result = self._claude.complete(
             system=system,
             user_prompt=user,
             tools=[web_search_tool(self._web_search_max_uses)],
@@ -136,12 +152,20 @@ class PreEarningsMonitor:
             raise PressReleaseNotFoundError()
         return result
 
-    async def _write_output(
-        self, msg: PreEarningsMessage, content: str
-    ) -> None:
-        path = (
+    def _build_output_path(self, msg: PreEarningsMessage) -> str:
+        return (
             f"{self._output_prefix}/company={msg.ticker}/"
             f"quarter={msg.fiscal_quarter}/fiscal={msg.fiscal_year}/"
             f"{msg.ticker}_FY_{msg.fiscal_quarter}_{msg.fiscal_year}.md"
         )
-        await self._gcs.write_text(self._output_bucket, path, content)
+
+    def _write_audit(self, msg: PreEarningsMessage, reason: str) -> None:
+        audit_path = (
+            f"{self._output_prefix}/company={msg.ticker}/"
+            f"quarter={msg.fiscal_quarter}/fiscal={msg.fiscal_year}/audit.json"
+        )
+        self._gcs.write_json(
+            self._output_bucket,
+            audit_path,
+            {"ticker": msg.ticker, "reason": reason},
+        )

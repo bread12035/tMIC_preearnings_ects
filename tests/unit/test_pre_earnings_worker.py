@@ -1,28 +1,42 @@
-"""Tests for pre_earnings.worker.PreEarningsWorker."""
+"""Tests for pre_earnings.worker.PreEarningsWorker (sync)."""
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from pre_earnings.worker import PreEarningsWorker
 
 
-@pytest.mark.asyncio
-async def test_handle_acks_immediately_and_runs_polling_in_background() -> None:
-    started = asyncio.Event()
-    finished = asyncio.Event()
-
-    async def slow_run(msg):
-        started.set()
-        await asyncio.sleep(0.05)
-        finished.set()
-
+def test_handle_blocks_and_acks_on_success() -> None:
     monitor = MagicMock()
-    monitor.run = AsyncMock(side_effect=slow_run)
+    monitor.run = MagicMock(return_value=None)
 
+    worker = PreEarningsWorker(monitor)
+    payload = {
+        "ticker": "AAPL",
+        "fiscal_year": "2026",
+        "fiscal_quarter": "Q2",
+        "event_time_iso": "2026-04-27T12:00:00+00:00",
+    }
+
+    ok = worker.handle(payload, {"message_id": "m1"})
+    assert ok is True
+    monitor.run.assert_called_once()
+
+
+def test_handle_malformed_message_acks() -> None:
+    monitor = MagicMock()
+    worker = PreEarningsWorker(monitor)
+    ok = worker.handle({"missing": "fields"}, {})
+    assert ok is True
+    monitor.run.assert_not_called()
+
+
+def test_handle_nacks_on_unexpected_monitor_exception() -> None:
+    monitor = MagicMock()
+    monitor.run = MagicMock(side_effect=RuntimeError("monitor exploded"))
     worker = PreEarningsWorker(monitor)
 
     payload = {
@@ -32,45 +46,22 @@ async def test_handle_acks_immediately_and_runs_polling_in_background() -> None:
         "event_time_iso": "2026-04-27T12:00:00+00:00",
     }
 
-    ok = await worker.handle(payload, {"message_id": "m1"})
-    assert ok is True
-
-    # The handler returned True (ack) immediately. Polling has either started
-    # or is about to; make sure it runs to completion when we yield.
-    await asyncio.wait_for(started.wait(), timeout=1.0)
-    await asyncio.wait_for(finished.wait(), timeout=1.0)
+    ok = worker.handle(payload, {})
+    assert ok is False  # nack: unexpected crash
 
 
-@pytest.mark.asyncio
-async def test_handle_malformed_message_acks() -> None:
+def test_handle_acks_after_polling_exhaustion() -> None:
+    """monitor.run() returns normally (exhausted); worker acks."""
     monitor = MagicMock()
-    worker = PreEarningsWorker(monitor)
-    ok = await worker.handle({"missing": "fields"}, {})
-    assert ok is True
-    monitor.run.assert_not_called() if hasattr(monitor.run, "assert_not_called") else None
-
-
-@pytest.mark.asyncio
-async def test_handle_swallows_monitor_exception() -> None:
-    failed = asyncio.Event()
-
-    async def boom(msg):
-        failed.set()
-        raise RuntimeError("monitor exploded")
-
-    monitor = MagicMock()
-    monitor.run = AsyncMock(side_effect=boom)
+    monitor.run = MagicMock(return_value=None)  # exhausted => returns None
     worker = PreEarningsWorker(monitor)
 
     payload = {
-        "ticker": "AAPL",
+        "ticker": "MSFT",
         "fiscal_year": "2026",
-        "fiscal_quarter": "Q2",
+        "fiscal_quarter": "Q3",
         "event_time_iso": "2026-04-27T12:00:00+00:00",
     }
 
-    ok = await worker.handle(payload, {})
+    ok = worker.handle(payload, {"message_id": "m2"})
     assert ok is True
-    await asyncio.wait_for(failed.wait(), timeout=1.0)
-    # Allow the background task to finalise (it should swallow the exception)
-    await asyncio.sleep(0.01)

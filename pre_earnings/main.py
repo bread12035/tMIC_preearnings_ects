@@ -1,23 +1,22 @@
-"""Entry point for the pre-earnings deployment."""
+"""Entry point for the pre-earnings deployment (sync)."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import signal
+import threading
 
 from common.claude_client import ClaudeClient
 from common.company_config import CompanyConfigLoader
 from common.config import bootstrap_env, get_settings
 from common.gcs_service import GCSService
 from common.logging import setup_logging
-from common.pubsub import AsyncSubscriber
+from common.sync_subscriber import SyncSubscriber
 from pre_earnings.monitor import PreEarningsMonitor
 from pre_earnings.worker import PreEarningsWorker
 
 
-async def amain() -> None:
+def main() -> None:
     bootstrap_env()  # MUST be first: load /app/.env (or repo-root .env)
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -60,39 +59,44 @@ async def amain() -> None:
     )
     worker = PreEarningsWorker(monitor)
 
-    subscriber = AsyncSubscriber(
+    subscriber = SyncSubscriber(
         project_id=settings.gcp_project_id,
         subscription=settings.gcp_pubsub_subscription,
         handler=worker.handle,
-        max_inflight=settings.gcp_pubsub_max_inflight,
+        max_messages=settings.gcp_pubsub_max_inflight,
+        max_lease_duration=10800,  # 3h — covers worst-case polling window (SDD §3.2)
     )
 
-    # Graceful shutdown
-    stop_event = asyncio.Event()
+    # Bridge signal handler to shutdown via threading.Event.
+    # Signal handler must do as little as possible — just set the event.
+    shutdown_event = threading.Event()
 
-    def _signal_handler() -> None:
-        stop_event.set()
+    def _on_signal(signum, frame):
+        log.info("shutdown_signal_received", extra={"signal": signum})
+        shutdown_event.set()
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(sig, _signal_handler)
-        except NotImplementedError:
-            # Windows local dev: signal handlers not supported on the proactor loop
-            pass
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
 
     # Health probe sentinels (paired with K8s exec probes)
-    _touch("/tmp/alive")
-
-    await subscriber.start()
     _touch("/tmp/ready")
+
+    subscriber.start()
     log.info("subscriber_ready")
 
-    try:
-        await stop_event.wait()
-    finally:
-        await subscriber.shutdown()
-        log.info("shutdown_complete")
+    # Poll shutdown_event; also exit if the streaming future dies on its own.
+    while not shutdown_event.is_set():
+        if shutdown_event.wait(timeout=1.0):
+            break
+        if (
+            subscriber._streaming_future is not None
+            and subscriber._streaming_future.done()
+        ):
+            log.warning("streaming_future_done_unexpectedly")
+            break
+
+    subscriber.shutdown()
+    log.info("shutdown_complete")
 
 
 def _touch(path: str) -> None:
@@ -100,9 +104,8 @@ def _touch(path: str) -> None:
         with open(path, "w") as f:
             f.write("ok")
     except OSError:
-        # Probe files are best-effort; running outside K8s is fine.
         pass
 
 
 if __name__ == "__main__":
-    asyncio.run(amain())
+    main()
